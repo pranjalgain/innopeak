@@ -58,6 +58,7 @@ export enum RouteNames {
   INVITE_VALIDATE = 'invite/:token',
   INVITE_ACCEPT = 'invite/accept',
   INVITE_GOOGLE = 'invite/:token/google',
+  INVITE_MICROSOFT = 'invite/:token/microsoft',
   GOOGLE_AUTHORIZE = 'google/authorize',
   GOOGLE_CALLBACK = 'google/callback',
   GOOGLE = 'google',

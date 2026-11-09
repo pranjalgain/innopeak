@@ -229,6 +229,15 @@ export class EnvConfig {
   @IsString()
   CLOUDINARY_API_SECRET?: string;
 
+  /**
+   * Deploy-level master switch for email/password sign-in. Off (the default) makes the server report `emailDeliveryAvailable: false`,
+   * so password sign-in is not in effect and an admin cannot turn it on, even when provider credentials are present. Set it to `true`
+   * only once this deployment actually delivers email. Applied via `=== 'true'` at the call site, not here.
+   */
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  EMAIL_DELIVERY_ENABLED?: string;
+
   @IsOptional()
   @IsString()
   EMAIL_PROVIDER?: string;

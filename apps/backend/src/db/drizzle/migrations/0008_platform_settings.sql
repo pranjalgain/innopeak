@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS platform_settings (
     -- One column per sign-in method, named for the provider it offers (Microsoft and Google are both single sign-on and both
     -- "social", so neither word says which).
     microsoft_login_enabled BOOLEAN NOT NULL DEFAULT true,
-    password_login_enabled BOOLEAN NOT NULL DEFAULT true,
+    password_login_enabled BOOLEAN NOT NULL DEFAULT false,
     google_login_enabled BOOLEAN NOT NULL DEFAULT true,
     invite_members_enabled BOOLEAN NOT NULL DEFAULT true,
     -- Whether a tenant's Settings screen offers notification channel preferences. Off by default: phase one delivers in-app

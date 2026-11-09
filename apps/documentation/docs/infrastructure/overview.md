@@ -23,8 +23,8 @@ The short version for decision makers:
 
 | Component | Status | Where | Owner |
 |---|---|---|---|
-| Backend container image (API and worker) | **Defined, but cannot be built from a clean checkout.** The Dockerfile copies `apps/backend/pnpm-lock.yaml`, which is git-ignored | `apps/backend/Dockerfile` | App team |
-| Web app container image | Missing | none | App team |
+| Backend container image (API, worker and migration job) | Defined; built from the repository root with the tracked lockfile | `apps/backend/Dockerfile` | App team |
+| Web app container image | Defined; standalone Next.js output | `apps/web/Dockerfile` | App team |
 | Documentation site image | Missing (it builds to static files) | none | App team |
 | Worker deployment | Missing. It is the backend image started with a different command | none | Devops |
 | Local development stack | Defined | `apps/backend/docker-compose.yml` | App team |

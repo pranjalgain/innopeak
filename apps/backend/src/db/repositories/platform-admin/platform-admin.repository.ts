@@ -183,14 +183,14 @@ export class PlatformAdminRepository {
       .select({
         id: schema.platformAdmins.id,
         status: schema.platformAdmins.status,
-        inviteExpiresAt: schema.platformAdminInvites.expiresAt,
+        inviteExpiresAt: schema.platformAdminAuthTokens.expiresAt,
       })
       .from(schema.platformAdmins)
       .leftJoin(
-        schema.platformAdminInvites,
+        schema.platformAdminAuthTokens,
         and(
-          eq(schema.platformAdminInvites.platformAdminId, schema.platformAdmins.id),
-          eq(schema.platformAdminInvites.purpose, PlatformAdminInvitePurpose.INVITE)
+          eq(schema.platformAdminAuthTokens.platformAdminId, schema.platformAdmins.id),
+          eq(schema.platformAdminAuthTokens.purpose, PlatformAdminInvitePurpose.INVITE)
         )
       )
       .where(eq(schema.platformAdmins.email, email))
@@ -241,18 +241,18 @@ export class PlatformAdminRepository {
         email: schema.platformAdmins.email,
         status: schema.platformAdmins.status,
         createdAt: schema.platformAdmins.createdAt,
-        inviteCreatedAt: schema.platformAdminInvites.createdAt,
-        inviteExpiresAt: schema.platformAdminInvites.expiresAt,
+        inviteCreatedAt: schema.platformAdminAuthTokens.createdAt,
+        inviteExpiresAt: schema.platformAdminAuthTokens.expiresAt,
         invitedByPlatformAdminId: schema.platformAdmins.invitedByPlatformAdminId,
       })
       .from(schema.platformAdmins)
       // `purpose = 'invite'` lives in the JOIN condition: in a WHERE it would act as an INNER JOIN
       // and drop the seeded root (no invite row).
       .leftJoin(
-        schema.platformAdminInvites,
+        schema.platformAdminAuthTokens,
         and(
-          eq(schema.platformAdminInvites.platformAdminId, schema.platformAdmins.id),
-          eq(schema.platformAdminInvites.purpose, PlatformAdminInvitePurpose.INVITE)
+          eq(schema.platformAdminAuthTokens.platformAdminId, schema.platformAdmins.id),
+          eq(schema.platformAdminAuthTokens.purpose, PlatformAdminInvitePurpose.INVITE)
         )
       )
       .where(where)
@@ -286,7 +286,7 @@ export class PlatformAdminRepository {
     tx: DrizzleTransaction,
     input: { platformAdminId: string; tokenHash: string; expiresAt: string }
   ): Promise<void> {
-    await tx.insert(schema.platformAdminInvites).values({
+    await tx.insert(schema.platformAdminAuthTokens).values({
       platformAdminId: input.platformAdminId,
       tokenHash: input.tokenHash,
       purpose: PlatformAdminInvitePurpose.INVITE,
@@ -296,7 +296,7 @@ export class PlatformAdminRepository {
 
   /**
    * Upsert on (owner, purpose) like `AuthRepository.putSetPasswordOtp`, via
-   * `idx_platform_admin_invites_platform_admin_id_purpose`: a resend reissues the one live row. The
+   * `idx_platform_admin_auth_tokens_platform_admin_id_purpose`: a resend reissues the one live row. The
    * step-up proof `setPassword` requires before turning a 15-minute access token into a permanent
    * credential on a Google-only admin.
    */
@@ -305,7 +305,7 @@ export class PlatformAdminRepository {
     input: { platformAdminId: string; tokenHash: string; expiresAt: string }
   ): Promise<void> {
     await tx
-      .insert(schema.platformAdminInvites)
+      .insert(schema.platformAdminAuthTokens)
       .values({
         platformAdminId: input.platformAdminId,
         tokenHash: input.tokenHash,
@@ -313,7 +313,10 @@ export class PlatformAdminRepository {
         expiresAt: input.expiresAt,
       })
       .onConflictDoUpdate({
-        target: [schema.platformAdminInvites.platformAdminId, schema.platformAdminInvites.purpose],
+        target: [
+          schema.platformAdminAuthTokens.platformAdminId,
+          schema.platformAdminAuthTokens.purpose,
+        ],
         set: {
           tokenHash: input.tokenHash,
           expiresAt: input.expiresAt,
@@ -332,18 +335,18 @@ export class PlatformAdminRepository {
     input: { platformAdminId: string; tokenHash: string }
   ): Promise<boolean> {
     const rows = await tx
-      .update(schema.platformAdminInvites)
+      .update(schema.platformAdminAuthTokens)
       .set({ usedAt: sql`now()`, updatedAt: sql`now()` })
       .where(
         and(
-          eq(schema.platformAdminInvites.platformAdminId, input.platformAdminId),
-          eq(schema.platformAdminInvites.tokenHash, input.tokenHash),
-          eq(schema.platformAdminInvites.purpose, PlatformAdminInvitePurpose.SET_PASSWORD),
-          isNull(schema.platformAdminInvites.usedAt),
-          gt(schema.platformAdminInvites.expiresAt, sql`now()`)
+          eq(schema.platformAdminAuthTokens.platformAdminId, input.platformAdminId),
+          eq(schema.platformAdminAuthTokens.tokenHash, input.tokenHash),
+          eq(schema.platformAdminAuthTokens.purpose, PlatformAdminInvitePurpose.SET_PASSWORD),
+          isNull(schema.platformAdminAuthTokens.usedAt),
+          gt(schema.platformAdminAuthTokens.expiresAt, sql`now()`)
         )
       )
-      .returning({ id: schema.platformAdminInvites.id });
+      .returning({ id: schema.platformAdminAuthTokens.id });
 
     return rows.length > 0;
   }
@@ -452,17 +455,17 @@ export class PlatformAdminRepository {
   async findInviteEmailByTokenHash(tokenHash: string): Promise<{ email: string } | null> {
     const rows = await this.dbService.db
       .select({ email: schema.platformAdmins.email })
-      .from(schema.platformAdminInvites)
+      .from(schema.platformAdminAuthTokens)
       .innerJoin(
         schema.platformAdmins,
-        eq(schema.platformAdmins.id, schema.platformAdminInvites.platformAdminId)
+        eq(schema.platformAdmins.id, schema.platformAdminAuthTokens.platformAdminId)
       )
       .where(
         and(
-          eq(schema.platformAdminInvites.tokenHash, tokenHash),
-          eq(schema.platformAdminInvites.purpose, PlatformAdminInvitePurpose.INVITE),
-          isNull(schema.platformAdminInvites.usedAt),
-          sql`${schema.platformAdminInvites.expiresAt} > now()`
+          eq(schema.platformAdminAuthTokens.tokenHash, tokenHash),
+          eq(schema.platformAdminAuthTokens.purpose, PlatformAdminInvitePurpose.INVITE),
+          isNull(schema.platformAdminAuthTokens.usedAt),
+          sql`${schema.platformAdminAuthTokens.expiresAt} > now()`
         )
       )
       .limit(1);
@@ -513,11 +516,13 @@ export class PlatformAdminRepository {
   }
 
   /**
-   * `AuthService.completeAdminInviteGoogle` has already confirmed the Google email matches the
-   * invited address; this does not re-check it (`platform_admin_identities` has no email column).
+   * `PlatformAdminAuthService.completeAdminInviteSso` has already confirmed the SSO email matches
+   * the invited address; this does not re-check it (`platform_admin_identities` has no email
+   * column).
    */
-  async acceptInviteWithGoogleIdentity(input: {
+  async acceptInviteWithSsoIdentity(input: {
     tokenHash: string;
+    provider: UserIdentityProvider;
     providerUserId: string;
   }): Promise<AcceptInviteOutcome> {
     return this.dbService.db.transaction(async tx => {
@@ -545,12 +550,12 @@ export class PlatformAdminRepository {
       try {
         await tx.insert(schema.platformAdminIdentities).values({
           platformAdminId: admin.id,
-          provider: UserIdentityProvider.GOOGLE,
+          provider: input.provider,
           providerUserId: input.providerUserId,
         });
       } catch (error) {
         if (isUniqueViolation(error)) {
-          // Google account already linked to a different admin
+          // SSO account already linked to a different admin
           // (`idx_platform_admin_identities_provider_provider_user_id`); rolls back with the
           // transaction so the admin is not left half-activated.
           return { outcome: 'identity_already_linked' };
@@ -574,16 +579,16 @@ export class PlatformAdminRepository {
   ): Promise<{ id: string; platformAdminId: string } | null> {
     const rows = await tx
       .select({
-        id: schema.platformAdminInvites.id,
-        platformAdminId: schema.platformAdminInvites.platformAdminId,
+        id: schema.platformAdminAuthTokens.id,
+        platformAdminId: schema.platformAdminAuthTokens.platformAdminId,
       })
-      .from(schema.platformAdminInvites)
+      .from(schema.platformAdminAuthTokens)
       .where(
         and(
-          eq(schema.platformAdminInvites.tokenHash, tokenHash),
-          eq(schema.platformAdminInvites.purpose, PlatformAdminInvitePurpose.INVITE),
-          isNull(schema.platformAdminInvites.usedAt),
-          sql`${schema.platformAdminInvites.expiresAt} > now()`
+          eq(schema.platformAdminAuthTokens.tokenHash, tokenHash),
+          eq(schema.platformAdminAuthTokens.purpose, PlatformAdminInvitePurpose.INVITE),
+          isNull(schema.platformAdminAuthTokens.usedAt),
+          sql`${schema.platformAdminAuthTokens.expiresAt} > now()`
         )
       )
       .for('update')
@@ -594,9 +599,9 @@ export class PlatformAdminRepository {
 
   private async consumeInvite(tx: DrizzleTransaction, inviteId: string): Promise<void> {
     await tx
-      .update(schema.platformAdminInvites)
+      .update(schema.platformAdminAuthTokens)
       .set({ usedAt: sql`now()`, updatedAt: sql`now()` })
-      .where(eq(schema.platformAdminInvites.id, inviteId));
+      .where(eq(schema.platformAdminAuthTokens.id, inviteId));
   }
 
   /** The one place `DBService`'s raw connection is touched for a transaction boundary. */

@@ -220,3 +220,29 @@ export function ApiInviteGoogleAuthorize(): ReturnType<typeof applyDecorators> {
     ApiResponse({ status: 503, description: 'GOOGLE_CLIENT_ID / SECRET / CALLBACK_URL unset' })
   );
 }
+
+export function ApiInviteMicrosoftAuthorize(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Accept a platform-admin invite via Microsoft',
+      description:
+        'The Microsoft alternative to `POST /v1/admin/auth/invite/accept` — deliberately not the ' +
+        'same route as `GET /v1/admin/auth/microsoft` login, since a first-time invitee has no ' +
+        '`platform_admin_identities` row yet for that callback to find. Re-validates the token ' +
+        '(unexpired, unused) and the admin Microsoft configuration before ever redirecting. The ' +
+        'round trip is pinned to `ADMIN_MICROSOFT_TENANT_ID`; the shared ' +
+        '`GET /v1/auth/microsoft/callback` completes it only when the verified email exactly ' +
+        'matches the invited address (`?error=INVITE_EMAIL_MISMATCH` otherwise, token left ' +
+        'unconsumed).',
+    }),
+    ApiParam({ name: 'token', description: 'The raw invite token from the accept-invite link' }),
+    ApiResponse({
+      status: 302,
+      description: 'Redirect to Microsoft, or to the accept page with ?error=',
+    }),
+    ApiResponse({
+      status: 503,
+      description: 'MICROSOFT_CLIENT_ID / SECRET / CALLBACK_URL or ADMIN_MICROSOFT_TENANT_ID unset',
+    })
+  );
+}

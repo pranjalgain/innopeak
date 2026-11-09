@@ -4,6 +4,50 @@ All notable changes to this boilerplate are documented in this file.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Container images for both apps.** `apps/backend/Dockerfile` and the new `apps/web/Dockerfile` build
+  from the repository root with the tracked `pnpm-lock.yaml`, activate pnpm 10.15.0 and run as the
+  unprivileged `node` user. The backend's final stage installs production dependencies only; the web
+  image uses Next.js `output: "standalone"`. A root `.dockerignore` keeps generated and local-only
+  files out of both contexts.
+- **`emailDeliveryAvailable`** on `GET /v1/settings/platform-config`, so the admin console can disable
+  the email/password switch (with an explanation) when the server has no email service.
+- **`EMAIL_DELIVERY_ENABLED`**, the deploy-level master switch behind `emailDeliveryAvailable` and
+  email/password sign-in. It defaults to off, so a deployment stays password-free until someone
+  explicitly turns email delivery on, even if provider credentials happen to be present.
+
+### Changed
+
+- **Email/password sign-in is hard-disabled until email delivery exists.** `canDeliverEmail` now
+  requires `EMAIL_DELIVERY_ENABLED=true` and a configured email provider, and no longer treats a
+  developer's machine as able to deliver (the local provider only logs the message). With either
+  missing the stored password switch is not in effect, and an admin cannot turn it on
+  (`PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE`); the admin toggle is disabled and says why. Invitations and
+  sign-up codes need the same delivery path.
+
+### Security
+
+- **Node.js runtime bumped to 24.22.1** across the backend image, `.nvmrc`, `engines`, and CI pins.
+  Fixes the October 2026 high-severity advisories — most importantly CVE-2026-111497 (Brotli
+  decoder out-of-bounds write, reachable pre-auth through body-parser's `Content-Encoding: br`
+  support), plus CVE-2026-105482, CVE-2026-105483, and CVE-2026-106069. Node 20 is EOL and has no
+  patched release for these.
+
+### Fixed
+
+- **Migration lock refreshed** after the in-place schema edits to `0000`/`0001`/`0002`/`0007`/`0008`/`0009`
+  (`pnpm db:migrations:lock`); `pnpm db:migrations:verify` passes. Existing databases must be reset
+  before running the edited migrations, since applied migrations are not re-run.
+- **`platform_settings.password_login_enabled`** now defaults to `false` in `schema.ts`, matching
+  `0008_platform_settings.sql`.
+- Removed leftover `console.dir` debug output from the review-sync queue and restored the review-sync
+  poll schedule to every 15 minutes.
+
+---
+
 ## [2.1.0] — AWS-Emulated Local Stack (Floci)
 
 A second, parallel local dev stack for projects targeting AWS in production — toggled by a single

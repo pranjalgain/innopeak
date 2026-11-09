@@ -314,6 +314,10 @@ export const messagesEn: MessageCatalog = {
       const who = count === 1 ? 'one user' : `${count} users`;
       return `${provider} is the only way ${who} can sign in. Turning it off locks them out until it is turned back on. Confirm to turn it off anyway.`;
     },
+    CANNOT_DISABLE_PASSWORD_LOGIN_PASSWORD_ONLY_USERS: (count: number): string => {
+      const who = count === 1 ? 'one user' : `${count} users`;
+      return `Email and password is the only way ${who} can sign in. Turning it off locks them out until it is turned back on. Confirm to turn it off anyway.`;
+    },
     PLATFORM_SETTINGS_NO_USABLE_METHOD:
       'At least one enabled sign-in method must also be set up on this server (Microsoft and Google need their credentials configured).',
     ADMIN_NOT_FOUND: 'Platform admin not found.',

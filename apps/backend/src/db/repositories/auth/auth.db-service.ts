@@ -3,6 +3,7 @@ import {
   PENDING_SIGNUP_REPLACEABLE_AFTER_HOURS,
 } from '@auth/constants/auth.constants';
 import { IDENTITY_PROVIDER_FOR, SsoProvider } from '@auth/constants/sso-auth.constants';
+import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
@@ -690,13 +691,14 @@ export class AuthDbService {
     return this.authRepository.acceptMemberInviteWithPassword(input);
   }
 
-  /** CAS-redeems a member invite via Google — see `AuthRepository.acceptMemberInviteWithGoogleIdentity`. */
-  async acceptMemberInviteWithGoogleIdentity(input: {
+  /** CAS-redeems a member invite via SSO — see `AuthRepository.acceptMemberInviteWithSsoIdentity`. */
+  async acceptMemberInviteWithSsoIdentity(input: {
     tokenHash: string;
+    provider: UserIdentityProvider;
     providerUserId: string;
     email: string;
     name: string;
   }): Promise<AcceptMemberInviteOutcome> {
-    return this.authRepository.acceptMemberInviteWithGoogleIdentity(input);
+    return this.authRepository.acceptMemberInviteWithSsoIdentity(input);
   }
 }

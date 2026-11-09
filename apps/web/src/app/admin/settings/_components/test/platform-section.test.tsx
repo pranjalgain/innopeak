@@ -9,20 +9,24 @@ import { PlatformSection } from "../platform-section";
 const update = vi.hoisted(() => vi.fn());
 const confirmLockout = vi.hoisted(() => vi.fn());
 const dismissLockout = vi.hoisted(() => vi.fn());
-const state = vi.hoisted(() => ({ pendingLockout: null as { message: string } | null }));
+const state = vi.hoisted(() => ({
+  pendingLockout: null as { message: string } | null,
+  settings: {
+    microsoftLoginEnabled: true,
+    passwordLoginEnabled: true,
+    googleLoginEnabled: true,
+    inviteMembersEnabled: true,
+    notificationSettingsEnabled: false,
+    emailDeliveryAvailable: true as boolean,
+  },
+}));
 
 vi.mock("@/hooks/common/use-platform-settings", () => ({
   usePlatformSettings: () => ({
     isLoading: false,
     isError: false,
     refetch: vi.fn(),
-    data: {
-      microsoftLoginEnabled: true,
-      passwordLoginEnabled: true,
-      googleLoginEnabled: true,
-      inviteMembersEnabled: true,
-      notificationSettingsEnabled: false,
-    },
+    data: state.settings,
   }),
 }));
 vi.mock("@/hooks/admin/use-update-platform-settings", () => ({
@@ -51,6 +55,14 @@ describe("PlatformSection lockout confirmation", () => {
     confirmLockout.mockReset();
     dismissLockout.mockReset();
     state.pendingLockout = null;
+    state.settings = {
+      microsoftLoginEnabled: true,
+      passwordLoginEnabled: true,
+      googleLoginEnabled: true,
+      inviteMembersEnabled: true,
+      notificationSettingsEnabled: false,
+      emailDeliveryAvailable: true,
+    };
   });
 
   test("shows no dialog while nothing is held back", () => {
@@ -81,5 +93,36 @@ describe("PlatformSection lockout confirmation", () => {
 
     expect(dismissLockout).toHaveBeenCalled();
     expect(confirmLockout).not.toHaveBeenCalled();
+  });
+});
+
+// Email delivery is off, so the backend reports the password switch off. The toggle stays available, and turning it on reaches
+// the API, which refuses with 422 and a message — the same pattern as Notification preferences.
+describe("PlatformSection password toggle without email delivery", () => {
+  beforeEach(() => {
+    update.mockReset();
+    state.pendingLockout = null;
+    state.settings = {
+      microsoftLoginEnabled: true,
+      passwordLoginEnabled: false,
+      googleLoginEnabled: true,
+      inviteMembersEnabled: true,
+      notificationSettingsEnabled: false,
+      emailDeliveryAvailable: false,
+    };
+  });
+
+  test("keeps the toggle enabled, shows the normal helper, and sends the change to the API", async () => {
+    renderSection();
+
+    const toggle = screen.getByRole("switch", {
+      name: messages.adminSettings.platform.password.label,
+    });
+    expect(toggle).toBeEnabled();
+    expect(screen.getByText(messages.adminSettings.platform.password.helper)).toBeVisible();
+
+    await userEvent.click(toggle);
+
+    expect(update).toHaveBeenCalledWith({ passwordLoginEnabled: true });
   });
 });

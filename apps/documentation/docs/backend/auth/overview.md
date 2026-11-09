@@ -41,10 +41,10 @@ provider — see [Auth Module — API Reference](./api-reference.md).
 | `tenant_identity_providers` | Which external directory (`entra_id`, `google_workspace`) a tenant trusts for SSO, and that directory's `provider_tenant_id`. Must be **configurable before** any user has logged in, so a first successful SSO login can't silently claim the directory for the tenant (`PLAN.md` §2). |
 | `users` | Tenant-scoped user. `role`: `owner` \| `member`. `status`: `pending_verification` \| `invited` \| `active` \| `disabled`. `password_hash` is nullable — an SSO-only user has no password. `email` is stored **normalized** (trimmed, lowercased) — the unique index on `(tenant_id, email)` is case-sensitive, so normalization happens in code on every write and comparison; see [Email normalization](./api-reference.md#email-normalization). |
 | `user_identities` | One row per (user, external provider). `provider`: `entra_id` \| `google`. Unique on `(provider, provider_user_id)` so the same external account can't attach to two app users. |
-| `password_reset_tokens` | One-time tokens for the password path, keyed by `purpose`: `verify_email` \| `invite` \| `reset`. Despite the name it also carries invite and email-verification tokens — see [Auth flows](#auth-flows). |
+| `user_auth_tokens` | One-time tokens for the password path, keyed by `purpose`: `verify_email` \| `invite` \| `reset`. Despite the name it also carries invite and email-verification tokens — see [Auth flows](#auth-flows). |
 | `platform_admins` | Mirrors `users` for the platform-admin hierarchy. `invited_by_platform_admin_id` nullable, with a unique partial index enforcing **at most** one root admin (`idx_platform_admins_single_root`) — zero rows satisfies it too, which is why the root admin has to be seeded. |
 | `platform_admin_identities` | Mirrors `user_identities` for platform admins. |
-| `platform_admin_invites` | Mirrors `password_reset_tokens` for platform admins, same `purpose` values minus `verify_email`. |
+| `platform_admin_auth_tokens` | Mirrors `user_auth_tokens` for platform admins, same `purpose` values minus `verify_email`. |
 
 Two enums drive provider selection and must not be confused with each other:
 
@@ -62,8 +62,8 @@ this document on purpose (see the note below the table for why):
 
 | Kind | Method | Schema support | Status in this codebase |
 |---|---|---|---|
-| **SSO** | Microsoft (Entra ID) | `user_identity_provider.entra_id`, `tenant_identity_provider.entra_id` | **Tenant sign-in and sign-up implemented** (see [Microsoft sign-in](./microsoft-login-design.md)); directory-checked tenant IdPs, admin sign-in and member invites with Microsoft are not (see [Frontend / backend boundary](#frontend--backend-boundary)) |
-| **Password** | Email + password | `users.password_hash`, `password_reset_tokens` | Implemented (generic boilerplate) — needs tenant-scoping, see [Gap](#gap-between-current-code-and-target-design) |
+| **SSO** | Microsoft (Entra ID) | `user_identity_provider.entra_id`, `tenant_identity_provider.entra_id` | **Tenant sign-in, sign-up, member invite acceptance and platform-admin sign-in/invite acceptance implemented** (see [Microsoft sign-in](./microsoft-login-design.md)); directory-checked tenant IdPs are not (see [Frontend / backend boundary](#frontend--backend-boundary)) |
+| **Password** | Email + password | `users.password_hash`, `user_auth_tokens` | Implemented (generic boilerplate) — needs tenant-scoping, see [Gap](#gap-between-current-code-and-target-design) |
 | **Social auth** | Google | `user_identity_provider.google` | Implemented (generic boilerplate), needs tenant-scoping |
 | **Social auth** | GitHub / Apple | Not modeled in `user_identity_provider` | Present in current code as unrelated boilerplate leftovers; not part of this product's scope — would slot in alongside Google if a future engagement wants them |
 
@@ -228,13 +228,11 @@ for what needs to change before it matches the InnoPeak tenant model.
 
 Not yet present, needed for the target design:
 
-- Microsoft SSO for platform admins and member invites (tenant sign-in/sign-up exists — see
-  [Microsoft sign-in](./microsoft-login-design.md)).
 - `POST /v1/auth/signup` (or equivalent) — tenant self-registration: creates the `tenants` row,
   the `owner` `users` row, and (for the password path) a `verify_email` token; for the SSO path,
   creates the `user_identities` row directly since Entra/Google already verified the email.
 - `POST /v1/auth/invite` / `POST /v1/auth/invite/accept` — member invite flow backed by
-  `password_reset_tokens` with `purpose = 'invite'`.
+  `user_auth_tokens` with `purpose = 'invite'`.
 - `POST /v1/auth/forgot-password` + `POST /v1/auth/reset-password` — `purpose = 'reset'` tokens.
   DTOs for these already exist (`forgot-password.dto.ts`, `reset-password.dto.ts`,
   `verify-email.dto.ts`) but aren't wired to controller routes yet.
@@ -270,12 +268,12 @@ Mapped to the schema tables above, independent of which login method is used:
    not of this flow** — it applies identically to flow 3's SSO acceptance and to flow 1's
    returning-user case, or a tenant's "our directory only" policy has a side door. See the shared
    rule in [the API reference](./api-reference.md#get-v1authmicrosoftcallback).
-3. **Member invite** — owner creates a `password_reset_tokens` row with `purpose = 'invite'` tied
+3. **Member invite** — owner creates a `user_auth_tokens` row with `purpose = 'invite'` tied
    to a pending `users` row (`status = 'invited'`); invitee accepts via token, then either sets a
    password or completes SSO (directory-checked if the tenant has a policy, and the IdP email must
    match the invited email — compared on normalized values, see [Email
    normalization](./api-reference.md#email-normalization)), which flips `status` to `active`.
-4. **Password reset** — `password_reset_tokens` with `purpose = 'reset'`, single-use
+4. **Password reset** — `user_auth_tokens` with `purpose = 'reset'`, single-use
    (`used_at`), time-boxed (`expires_at`).
 5. **Email verification** — `purpose = 'verify_email'`, password path only. SSO logins skip this
    entirely since the identity provider already vouches for the email, which is why the
@@ -287,7 +285,7 @@ Mapped to the schema tables above, independent of which login method is used:
    that is built. See [`POST
    /v1/auth/set-password`](./api-reference.md#post-v1authset-password).
 6. **Platform admin invite/login** — same shapes as 1–4 but against `platform_admins` /
-   `platform_admin_identities` / `platform_admin_invites`, kept structurally separate per the note
+   `platform_admin_identities` / `platform_admin_auth_tokens`, kept structurally separate per the note
    in [Data model](#data-model).
 
 ## Session / token model

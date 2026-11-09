@@ -7,12 +7,7 @@ import OpenAI from 'openai';
 
 import { AiProvider } from './ai.provider';
 
-import {
-  AI_MAX_OUTPUT_TOKENS,
-  AI_MAX_RETRIES,
-  AI_REQUEST_TIMEOUT_MS,
-  AI_TEMPERATURE,
-} from '../constants/ai.constants';
+import { AI_MAX_RETRIES, AI_REQUEST_TIMEOUT_MS, AI_TEMPERATURE } from '../constants/ai.constants';
 import {
   AiGenerationFailedException,
   AiProviderNotConfiguredException,
@@ -52,7 +47,6 @@ export class AzureOpenAiProvider extends AiProvider {
             { role: 'user', content: input.userPrompt },
           ],
           temperature: AI_TEMPERATURE,
-          max_tokens: input.maxOutputTokens ?? AI_MAX_OUTPUT_TOKENS,
         },
         { timeout: AI_REQUEST_TIMEOUT_MS, maxRetries: AI_MAX_RETRIES }
       );
@@ -125,9 +119,7 @@ export class AzureOpenAiProvider extends AiProvider {
 
     this.client = new OpenAI({
       apiKey,
-      baseURL: `${endpoint.replace(/\/+$/, '')}/openai/deployments/${deployment}`,
-      defaultQuery: { 'api-version': apiVersion },
-      defaultHeaders: { 'api-key': apiKey },
+      baseURL: `${endpoint.replace(/\/+$/, '')}/openai/v1`,
     });
     this.deployment = deployment;
     return { client: this.client, deployment: this.deployment };

@@ -1,12 +1,11 @@
 import { SendRawEmailCommand, SESClient } from '@aws-sdk/client-ses';
 import { getAwsEndpointOverride, getFlociCredentials } from '@common/helpers/aws-endpoint.util';
+import { isAwsDeploymentTarget } from '@config/deployment-target.util';
 import { EmailSendResult, SendEmailOptions } from '@email/interfaces/email.interface';
 import { EmailProvider } from '@email/providers/email.provider';
+import { isSettingProvided } from '@email/utils/email-config.util';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-
-/** A setting the operator actually provided, as opposed to the default the provider falls back to. */
-const isSet = (value: string | undefined): boolean => (value ?? '').trim() !== '';
 
 @Injectable()
 export class SesEmailProvider extends EmailProvider {
@@ -95,9 +94,19 @@ export class SesEmailProvider extends EmailProvider {
     return { messageId };
   }
 
-  /** The sender must be set: it defaults to `noreply@example.com`, which no SES identity is verified for. */
+  /**
+   * The sender must be set (it defaults to `noreply@example.com`, which no SES identity is verified for), and the client needs
+   * credentials: an access key pair, or the AWS deployment target, where they come from the environment's role. Without either, every
+   * send fails although a sender is set (a host outside AWS, such as Azure).
+   */
   isConfigured(): boolean {
-    return isSet(this.configService.get<string>('EMAIL_FROM'));
+    const hasKeys =
+      isSettingProvided(this.configService.get<string>('AWS_ACCESS_KEY_ID')) &&
+      isSettingProvided(this.configService.get<string>('AWS_SECRET_ACCESS_KEY'));
+    return (
+      isSettingProvided(this.configService.get<string>('EMAIL_FROM')) &&
+      (hasKeys || isAwsDeploymentTarget())
+    );
   }
 
   verify(): Promise<boolean> {

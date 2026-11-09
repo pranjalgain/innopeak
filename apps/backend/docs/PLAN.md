@@ -241,8 +241,8 @@ This is why `tenant_identity_providers` (the org-wide directory-trust table) sta
 - `user_identities` stays scoped to OAuth/social providers only (`entra_id`, `google`, …) — unchanged in shape, just no longer the *only* auth path. This is a **per-user** identity link (which specific person maps to which specific IdP account) — it does not carry the tenant-level directory-trust concept below.
 - **Add `password_hash` (string, nullable) and `email_verified_at` (datetime, nullable) to `users`.** Nullable because a user might only ever use social login (owner/super admin case) and never set a password.
 - **New table `tenant_identity_providers`** (replaces an earlier flat `tenants.entra_tenant_id` column) — the *tenant-level* directory-trust config: which external directory (Entra ID, and later Google Workspace/Okta/etc.) this app-tenant accepts SSO logins from. This is a separate concern from `user_identities`: it has to be checkable *before* any user has ever logged in (otherwise the first successful Entra login would implicitly claim the directory for the tenant — a trust-on-first-use gap), and it generalizes to future providers without adding a new column to `tenants` for each one. Shape mirrors `user_identities` one level up — see ER diagram above. Add a unique constraint on `(provider, provider_tenant_id)` so the same external directory can't be bound to two different app-tenants by mistake.
-- **New table `password_reset_tokens`** — covers three flows that are all the same underlying mechanic (prove email ownership via a one-time emailed link, then act): the owner's self-signup email verification (`purpose = verify_email`), an invited member setting their first password (`purpose = invite`), and forgot-password reset (`purpose = reset`). See ER diagram above for shape.
-- **Add `users.invited_by_user_id`** (nullable, self-referential FK, `ON DELETE SET NULL`) — this was a real gap: `platform_admins.invited_by_platform_admin_id` already tracks inviter lineage one level up (§2's platform admin notes), but `users` had no equivalent, so a `password_reset_tokens` row (`purpose = invite`) tells you *that* someone was invited and *who* they are, never *by whom* — the token only stores its own hash and the invitee's `user_id`, not the inviter's. `password_reset_tokens` is the wrong table to carry this (it's a short-lived, deleted-on-use token, not a durable audit trail); the FK belongs on the row it's actually a fact about, `users` itself, same reasoning as `review_responses.approved_by_user_id`. NULL for a self-registered owner (§4.3a) and for a platform-admin-provisioned owner (§4.3d — that owner's inviter is a `platform_admins` row, which this FK can't point to); set only when an owner invites a member (§4.3b), the one case where the inviter genuinely is another `users` row.
+- **New table `user_auth_tokens`** — covers three flows that are all the same underlying mechanic (prove email ownership via a one-time emailed link, then act): the owner's self-signup email verification (`purpose = verify_email`), an invited member setting their first password (`purpose = invite`), and forgot-password reset (`purpose = reset`). See ER diagram above for shape.
+- **Add `users.invited_by_user_id`** (nullable, self-referential FK, `ON DELETE SET NULL`) — this was a real gap: `platform_admins.invited_by_platform_admin_id` already tracks inviter lineage one level up (§2's platform admin notes), but `users` had no equivalent, so a `user_auth_tokens` row (`purpose = invite`) tells you *that* someone was invited and *who* they are, never *by whom* — the token only stores its own hash and the invitee's `user_id`, not the inviter's. `user_auth_tokens` is the wrong table to carry this (it's a short-lived, deleted-on-use token, not a durable audit trail); the FK belongs on the row it's actually a fact about, `users` itself, same reasoning as `review_responses.approved_by_user_id`. NULL for a self-registered owner (§4.3a) and for a platform-admin-provisioned owner (§4.3d — that owner's inviter is a `platform_admins` row, which this FK can't point to); set only when an owner invites a member (§4.3b), the one case where the inviter genuinely is another `users` row.
 - **`users.role` enum = `owner`, `member`** (tenant-scoped only):
   - `owner` — full tenant access: Settings page (thresholds, blocklist, Google connection, inviting/removing users) *and* participates in review approval. Created via self-signup, one per new tenant (more can be promoted later, out of scope for MVP).
   - `member` — review workflow only (queue, approve/edit/post, escalation view); no Settings access. Created only via an invite the *owner* sends, never self-registered and never platform-admin-created.
@@ -258,7 +258,7 @@ See the **User Onboarding sequence diagrams** (§4.3) for both flows in full.
 The SaaS-level super admin is **not** a tenant-scoped user, and — since tenant creation is now self-service — it's no longer in the tenant/owner provisioning path either. Its purpose is narrower: platform-level administration (support access into a tenant, disabling/suspending a tenant, cross-tenant visibility/metrics). Modeling it separately keeps `users.tenant_id` always `NOT NULL` and every tenant-scoped query safely assumable as single-tenant, rather than needing to defensively handle a nullable-tenant "super user" row mixed into the same table. Same dual auth model as owners (password + social), via a mirrored `platform_admin_identities` table — not worth a shared polymorphic table at this scale.
 - **`tenants.created_by_platform_admin_id` (nullable FK)** stays, but reframed: it's `NULL` for the normal self-registration path, and only gets set on the rare support-driven exception where a platform admin manually provisions a tenant on a business's behalf (e.g. an assisted/sales-led onboarding). Don't design the primary flow around it. See **§4.3d** for the full flow — the platform admin creates the tenant and invites the owner in one step, same invite-then-activate mechanic as a member invite, just one level up.
 - **There is exactly one platform admin to start, and no public signup path creates one.** The first `platform_admins` row is seeded at deployment time (a one-off migration/CLI step run by whoever operates the platform), never through the application's UI — allowing platform-admin signup as a normal web flow would be a privilege-escalation hole, not a feature. Additional platform admins, if ever needed, are **invite-only**, mirroring the owner→member mechanic one level up: an existing platform admin invites another by email.
-- **New table `platform_admin_invites`** — the platform-admin-scoped mirror of `password_reset_tokens`, for exactly the same reason `tenant_identity_providers` mirrors `user_identities`: keep the two account hierarchies (tenant users vs. platform admins) structurally independent rather than threading one shared polymorphic table through both. Same `purpose` values (`invite`, `reset`), same one-time-token-then-consume mechanic.
+- **New table `platform_admin_auth_tokens`** — the platform-admin-scoped mirror of `user_auth_tokens`, for exactly the same reason `tenant_identity_providers` mirrors `user_identities`: keep the two account hierarchies (tenant users vs. platform admins) structurally independent rather than threading one shared polymorphic table through both. Same `purpose` values (`invite`, `reset`), same one-time-token-then-consume mechanic.
 - **Add `platform_admins.invited_by_platform_admin_id`** (nullable, self-referential FK) — `NULL` only for the seeded first admin; every subsequently invited one records who invited them, same audit reasoning as `review_responses.approved_by_user_id`.
 - Extend `platform_admins.status` to `invited`, `active`, `disabled` (was just `active`/`disabled`) to support the pending-invite state.
 
@@ -492,7 +492,7 @@ sequenceDiagram
         end
     else Password chosen
         App->>DB: INSERT tenants (status=pending_activation) + users (role=owner, status=pending_verification) + tenant_settings (escalation_rating_threshold=3, auto_post_enabled=false) — one transaction
-        App->>DB: INSERT password_reset_tokens (purpose=verify_email)
+        App->>DB: INSERT user_auth_tokens (purpose=verify_email)
         App->>Owner: Send verification email with token link
 
         Owner->>App: Open verification link
@@ -518,7 +518,7 @@ sequenceDiagram
 
     Owner->>App: Invite member (email)
     App->>DB: INSERT users (tenant_id, role=member, status=invited, invited_by_user_id=Owner.id)
-    App->>DB: INSERT password_reset_tokens (purpose=invite)
+    App->>DB: INSERT user_auth_tokens (purpose=invite)
     App->>Invitee: Send invite email with token link
 
     Invitee->>App: Open invite link
@@ -533,7 +533,7 @@ sequenceDiagram
         Invitee->>App: Set password
     end
     App->>DB: UPDATE users SET status=active, email_verified_at=now()
-    App->>DB: Mark password_reset_tokens.used_at (guarded compare-and-swap, §8.7)
+    App->>DB: Mark user_auth_tokens.used_at (guarded compare-and-swap, §8.7)
 ```
 
 `email_verified_at` is set unconditionally here, not just on the social branch — clicking a tokenized link that was emailed to this specific address is exactly as much proof of ownership as an IdP assertion is; there's no reason to only credit one of the two.
@@ -554,7 +554,7 @@ sequenceDiagram
 
     PA->>App: Invite platform admin (email)
     App->>DB: INSERT platform_admins (invited_by_platform_admin_id=PA.id, status=invited)
-    App->>DB: INSERT platform_admin_invites (purpose=invite)
+    App->>DB: INSERT platform_admin_auth_tokens (purpose=invite)
     App->>Invitee: Send invite email with token link
 
     Invitee->>App: Open invite link
@@ -569,7 +569,7 @@ sequenceDiagram
         Invitee->>App: Set password
     end
     App->>DB: UPDATE platform_admins SET status=active
-    App->>DB: Mark platform_admin_invites.used_at (guarded compare-and-swap, §8.7)
+    App->>DB: Mark platform_admin_auth_tokens.used_at (guarded compare-and-swap, §8.7)
 ```
 
 Same mechanic, same email-match requirement, and same reasoning as §4.3b — not repeated here.
@@ -589,7 +589,7 @@ sequenceDiagram
     PA->>App: Create tenant + invite owner (name, email)
     App->>DB: INSERT tenants (created_by_platform_admin_id=PA.id, status=pending_activation)
     App->>DB: INSERT users (tenant_id, role=owner, status=invited, invited_by_user_id=NULL)
-    App->>DB: INSERT password_reset_tokens (purpose=invite)
+    App->>DB: INSERT user_auth_tokens (purpose=invite)
     App->>Owner: Send invite email with token link
 
     Owner->>App: Open invite link
@@ -605,10 +605,10 @@ sequenceDiagram
     end
     App->>DB: UPDATE users SET status=active, email_verified_at=now()
     App->>DB: UPDATE tenants SET status=active
-    App->>DB: Mark password_reset_tokens.used_at (guarded compare-and-swap, §8.7)
+    App->>DB: Mark user_auth_tokens.used_at (guarded compare-and-swap, §8.7)
 ```
 
-Note the owner's `status` here is `invited`, not `pending_verification` — 4.3a's owner never had anyone confirm their email address on their behalf, so self-registration needed its own verify step; here, the platform admin sending the invite to a specific email is already the equivalent assurance, same as any member invite. No new schema was needed for this — it reuses `users.status = invited` and `password_reset_tokens` exactly as the member flow does, just with `role = owner` and the tenant created in the same transaction (§8.10's atomicity concern applies here too). Same email-match requirement as §4.3b applies identically — the platform admin's assurance covers *that the invite reached the right inbox*, not *that whoever clicks it is who they claim to be over social login*; those are still two separate guarantees.
+Note the owner's `status` here is `invited`, not `pending_verification` — 4.3a's owner never had anyone confirm their email address on their behalf, so self-registration needed its own verify step; here, the platform admin sending the invite to a specific email is already the equivalent assurance, same as any member invite. No new schema was needed for this — it reuses `users.status = invited` and `user_auth_tokens` exactly as the member flow does, just with `role = owner` and the tenant created in the same transaction (§8.10's atomicity concern applies here too). Same email-match requirement as §4.3b applies identically — the platform admin's assurance covers *that the invite reached the right inbox*, not *that whoever clicks it is who they claim to be over social login*; those are still two separate guarantees.
 
 ---
 
@@ -801,7 +801,7 @@ If the reviewer edits their Google review after a draft was generated (or even a
 
 ### 8.7 Invite/reset token double-submit
 
-If a user opens an invite or reset link in two tabs and submits both, the token could be consumed twice. **Fix:** consuming a token is a guarded compare-and-swap too — `UPDATE password_reset_tokens SET used_at = now() WHERE id = ? AND used_at IS NULL`; the second submission sees 0 rows affected and is rejected as already-used, not double-processed. Same fix applies identically to `platform_admin_invites` (§4.3c) — it's the same mechanic one level up.
+If a user opens an invite or reset link in two tabs and submits both, the token could be consumed twice. **Fix:** consuming a token is a guarded compare-and-swap too — `UPDATE user_auth_tokens SET used_at = now() WHERE id = ? AND used_at IS NULL`; the second submission sees 0 rows affected and is rejected as already-used, not double-processed. Same fix applies identically to `platform_admin_auth_tokens` (§4.3c) — it's the same mechanic one level up.
 
 ### 8.8 Google connection reconnect
 

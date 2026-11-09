@@ -776,7 +776,7 @@ Errors: `401`, `403` (member), `404 RECIPIENT_NOT_FOUND`, `500`.
 
 The tenant-owner-facing roster: invite a teammate, revoke a pending invite, and — the two routes
 this pass adds — request or cancel the removal of an already-accepted member. There is no `tenant
-_member_invites` table: an invite's token lives on `password_reset_tokens` (`purpose = 'invite'`),
+_member_invites` table: an invite's token lives on `user_auth_tokens` (`purpose = 'invite'`),
 and the invited person is a real `users` row from the moment the invite is sent
 (`status = 'invited'`), not a separate pending record — see
 `apps/documentation/docs/backend/auth/tenant-member-invite-design.md` for why. This module reads
@@ -995,13 +995,14 @@ Public (`@Public()`): the sign-in and sign-up screens read it before a session e
 | Field | Type | Source |
 |---|---|---|
 | `microsoftLoginEnabled` | boolean | `platform_settings.microsoft_login_enabled` — whether the Microsoft sign-in button is offered (formerly `ssoLoginEnabled` / `sso_login_enabled`) |
-| `passwordLoginEnabled` | boolean | `platform_settings.password_login_enabled` — whether email/password is offered at all. While it is off `POST /v1/auth/signup` answers 403 `PASSWORD_SIGNUP_DISABLED`, and password sign-in, the sign-up code (`verify-email`, `resend-verification-otp`) and accepting an invitation with a password answer 403 `PASSWORD_LOGIN_DISABLED`. It does not end sessions that already exist, block password changes for signed-in users, or affect platform-admin sign-in. The web login screen hides its email/password form. Switching it from off to on is refused with 422 `PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE` while the server has no email service (see [Platform settings](../../services/platform-settings.md)); sending `true` while it is already on, and any `false`, are always accepted |
+| `passwordLoginEnabled` | boolean | `platform_settings.password_login_enabled` combined with `emailDeliveryAvailable` — whether email/password is in effect at all. While it is off `POST /v1/auth/signup` answers 403 `PASSWORD_SIGNUP_DISABLED`, and password sign-in, the sign-up code (`verify-email`, `resend-verification-otp`) and accepting an invitation with a password answer 403 `PASSWORD_LOGIN_DISABLED`. It does not end sessions that already exist, block password changes for signed-in users, or affect platform-admin sign-in. The web login screen hides its email/password form. `PATCH` with `true` is refused with 422 `PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE` while `EMAIL_DELIVERY_ENABLED` is off or the server has no email service (see [Platform settings](../../services/platform-settings.md)); any `false` is always accepted |
 | `googleLoginEnabled` | boolean | `platform_settings.google_login_enabled` — whether Google sign-in is offered to tenants (formerly `socialLoginEnabled` / `social_login_enabled`). While it is off the tenant Google routes (login, sign-up and invite authorize and callback) answer `NOT_CONFIGURED`; platform-admin Google sign-in and admin invites are never affected |
 | `inviteMembersEnabled` | boolean | `platform_settings.invite_members_enabled` — whether Settings → Members can send invites |
 | `notificationSettingsEnabled` | boolean | `platform_settings.notification_settings_enabled` — whether Settings shows the Notifications tab and the notification-recipients routes answer. Defaults to `false`. Writing `true` is refused with 422 `NOTIFICATION_CHANNELS_NOT_IMPLEMENTED` until email/Teams delivery exists; while it is off the recipients routes answer 403 `NOTIFICATION_SETTINGS_DISABLED` |
 | `paymentFeatureEnabled` | boolean | The deploy's `PAYMENT_FEATURE_ENABLED` env var, not a column |
 | `erasureGracePeriodDays` | number | The deploy's `ERASURE_GRACE_PERIOD_DAYS` env var (default 21), not a column. Days between a business or member being scheduled for erasure and the nightly purge anonymising it; the web app counts its "takes effect on" dates from it |
 | `adminMicrosoftLoginAvailable` | boolean | Derived from the environment, not a column: the Microsoft client (`MICROSOFT_CLIENT_ID`/`_SECRET`/`_CALLBACK_URL`) is configured **and** `ADMIN_MICROSOFT_TENANT_ID` pins the Entra directory platform admins sign in from. Whether the admin sign-in page offers "Continue with Microsoft" (sign-in only; admins are invite-only). Independent of `microsoftLoginEnabled`, which governs tenant sign-in |
+| `emailDeliveryAvailable` | boolean | Derived from the environment, not a column: `EMAIL_DELIVERY_ENABLED=true` and the configured email provider can actually send (`EMAIL_FROM` plus credentials, or `SMTP_HOST`). Email/password is in effect only when this is true. The admin console still offers the toggle; turning it on while this is false is refused with 422 `PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE`, the same pattern as `notificationSettingsEnabled` |
 
 ## Data export
 

@@ -15,6 +15,7 @@ const remotePatterns: RemotePattern[] = [];
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  output: "standalone",
   outputFileTracingRoot: path.join(__dirname, "../../"),
   poweredByHeader: false,
   // Source maps are uploaded to Sentry (and removed from the build) by the plugin below; they are never served to the public.

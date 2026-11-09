@@ -322,7 +322,7 @@ INSERT INTO users (tenant_id, name, email, role, status, invited_by_user_id)
      VALUES ($3, $4, $5, 'owner', 'invited', NULL);
 INSERT INTO tenant_settings (tenant_id, escalation_rating_threshold, auto_post_enabled)
      VALUES ($3, 3, false);
-INSERT INTO password_reset_tokens (user_id, token_hash, purpose, expires_at)
+INSERT INTO user_auth_tokens (user_id, token_hash, purpose, expires_at)
      VALUES ($6, $7, 'invite', $8);
 ```
 
@@ -388,7 +388,7 @@ Success `201`:
 }
 ```
 
-`inviteExpiresAt` is `password_reset_tokens.expires_at`, driven by auth's
+`inviteExpiresAt` is `user_auth_tokens.expires_at`, driven by auth's
 `INVITE_TOKEN_TTL_HOURS` (default 72) — see auth's
 [Configuration](../auth/api-reference.md#configuration). This module introduces no invite config of
 its own.
@@ -621,7 +621,7 @@ Errors: `400` validation, `401`, `403 NOT_A_PLATFORM_ADMIN`, `403 PLATFORM_ADMIN
 
 Listing and disabling admins. **Inviting one is not here** — that is [`POST
 /v1/platform-admin/auth/invite`](../auth/api-reference.md#platform-admin-api), owned by the auth
-module, along with the whole `platform_admin_invites` lifecycle.
+module, along with the whole `platform_admin_auth_tokens` lifecycle.
 
 | Method | Path | Auth | Throttle |
 |---|---|---|---|
@@ -748,7 +748,7 @@ It only accepts a `disabled` admin. An `invited` admin **cannot** be enabled thi
 means they have never accepted their invite and, for a password-path admin, have no
 `password_hash` at all, so flipping them to `active` would create an account nobody can sign into
 while looking, in every list, exactly like a working one. Reactivating a stalled invite is auth's
-job: a fresh `platform_admin_invites` row via [`POST
+job: a fresh `platform_admin_auth_tokens` row via [`POST
 /v1/platform-admin/auth/invite`](../auth/api-reference.md#platform-admin-api). This endpoint returns
 `400 CANNOT_ENABLE_INVITED_ADMIN` and says so.
 

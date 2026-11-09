@@ -32,7 +32,7 @@ Browser ──► apps/web (Next.js 16) ──/v1/* rewrite──► apps/backen
 
 ### Core Technologies
 
-- **Package manager**: pnpm workspaces; **runtime** Node.js >= 20; **language** TypeScript (very strict) throughout
+- **Package manager**: pnpm workspaces; **runtime** Node.js >= 24.22.1; **language** TypeScript (very strict) throughout
 - **Backend**: NestJS 11, Drizzle ORM over PostgreSQL (raw SQL migrations first), Redis, BullMQ locally and SQS in the AWS-emulated
   target (`DEPLOYMENT_TARGET`), Joi-validated environment
 - **Web**: Next.js 16 App Router, React 19, TanStack Query, react-hook-form + zod, next-intl (English and German), Tailwind and Radix

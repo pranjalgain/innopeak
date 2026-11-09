@@ -40,6 +40,7 @@ import type {
   PlatformSettingsRow,
 } from '@db/repositories/platform-settings/types/platform-settings.type';
 import { EmailProvider } from '@email/providers/email.provider';
+import { canDeliverEmail } from '@email/utils/email-config.util';
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -65,6 +66,7 @@ import {
   CannotDisableRootAdminException,
   CannotDisableSelfException,
   NotificationChannelsNotImplementedException,
+  PasswordLoginDisallowedPasswordOnlyUsersException,
   PasswordLoginNeedsEmailServiceException,
   PlatformAdminNotFoundException,
   PlatformConfigNotFoundException,
@@ -479,14 +481,12 @@ export class AdminSettingsService {
       throw new PlatformConfigNotFoundException();
     }
 
-    // Email/password needs email: a sign-up is completed by an emailed code and invitations are emailed. Only the change from off to on is
-    // refused, so a request that re-sends `true` on a platform already on, or any `false`, is never held up by this. A local development
-    // machine is exempt: there mail is written to the log and the fixed sign-up code stands in for it.
-    if (
-      patch.passwordLoginEnabled === true &&
-      !current.passwordLoginEnabled &&
-      !this.canDeliverEmail()
-    ) {
+    // Email/password needs email: a sign-up is completed by an emailed code and invitations are emailed. Without an email service the
+    // switch is not in effect whatever is stored (see `PlatformSettingsResponseDto.from`), so any request to turn it on is refused with
+    // the reason, even when the stored value is already on. `false` is always accepted. There is no developer-machine exemption: email
+    // delivery is not implemented yet, so the switch is off everywhere and nobody can enable it.
+    const emailDeliverable = canDeliverEmail(this.emailProvider, this.configService);
+    if (patch.passwordLoginEnabled === true && !emailDeliverable) {
       throw new PasswordLoginNeedsEmailServiceException();
     }
 
@@ -497,17 +497,17 @@ export class AdminSettingsService {
       throw new PlatformSettingsNoMethodEnabledException();
     }
 
-    // A method only counts if it can be used: Microsoft and Google also need their credentials configured on this server, while the
-    // password switch always works. Without this, switching password off while Microsoft is on but unconfigured leaves nobody able
-    // to sign in or sign up, and nothing would say why. Scoped to patches that touch a method, so an unrelated change on a platform
-    // already in that state is not refused.
+    // A method only counts if it can be used: Microsoft and Google also need their credentials configured on this server, and password
+    // needs an email service (its sign-up is completed by an emailed code). Without this, switching the providers off while password is
+    // the only method left, on a server that cannot send email, leaves nobody able to sign up, and nothing would say why. Scoped to
+    // patches that touch a method, so an unrelated change on a platform already in that state is not refused.
     const touchesMethod =
       patch.microsoftLoginEnabled !== undefined ||
       patch.passwordLoginEnabled !== undefined ||
       patch.googleLoginEnabled !== undefined;
     if (
       touchesMethod &&
-      !resultingPassword &&
+      !(resultingPassword && emailDeliverable) &&
       !(resultingMicrosoft && this.microsoftIdentityProvider.isConfigured()) &&
       !(resultingGoogle && this.googleIdentityProvider.isConfigured())
     ) {
@@ -548,6 +548,23 @@ export class AdminSettingsService {
       }
     }
 
+    // The same guard for the password switch: a tenant user who only ever used a password has no other way in. Only while it is in
+    // effect: without an email service it is already off for everyone, so switching the stored value off strands nobody new.
+    if (patch.passwordLoginEnabled === false && current.passwordLoginEnabled && emailDeliverable) {
+      const stranded = await this.platformSettingsDbService.countActivePasswordOnlyTenantUsers();
+      if (stranded > 0) {
+        if (dto.confirmLockout !== true) {
+          throw new PasswordLoginDisallowedPasswordOnlyUsersException(
+            MESSAGES.ADMIN.CANNOT_DISABLE_PASSWORD_LOGIN_PASSWORD_ONLY_USERS(stranded)
+          );
+        }
+        this.logger.warn(
+          `Platform admin ${admin.id} switched email/password sign-in off with ${stranded} active tenant user(s) who can only sign in with a password`
+        );
+        lockoutConfirmed = true;
+      }
+    }
+
     // No guard for admins whose only credential is Google: the admin Google intents never consult `googleLoginEnabled` (that switch
     // governs tenant sign-in, sign-up and invites), so switching it off cannot strand them.
 
@@ -576,6 +593,7 @@ export class AdminSettingsService {
       erasureGracePeriodDays: getErasureGracePeriodDays(this.configService),
       adminMicrosoftLoginAvailable: isAdminMicrosoftLoginAvailable(this.configService),
       adminGoogleLoginAvailable: this.googleIdentityProvider.isConfigured(),
+      emailDeliveryAvailable: canDeliverEmail(this.emailProvider, this.configService),
     });
   }
 
@@ -603,11 +621,6 @@ export class AdminSettingsService {
       actorEmail: input.admin.email,
       details: { changes, ...(input.lockoutConfirmed ? { lockoutConfirmed: true } : {}) },
     });
-  }
-
-  /** Whether an email sent now would reach its recipient, or this is a developer's machine where the log stands in for it. */
-  private canDeliverEmail(): boolean {
-    return isLocalDevelopment() || this.emailProvider.isConfigured();
   }
 
   /**

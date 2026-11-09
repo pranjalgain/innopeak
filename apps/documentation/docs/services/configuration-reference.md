@@ -100,6 +100,7 @@ How to read the tables:
 
 | Variable | Required | Default | Secret | Effect |
 |---|---|---|---|---|
+| `EMAIL_DELIVERY_ENABLED` | No (`true` or `false`) | off | No | Master switch for email/password. Off, the server reports `emailDeliveryAvailable: false`, password sign-in is not in effect and an admin cannot turn it on, even when the provider credentials are present. Set it to `true` only when this deployment actually delivers email |
 | `EMAIL_PROVIDER` | No | `smtp` | No | `smtp` or `ses`. Only consulted in production |
 | `EMAIL_FROM` | No. Set it when email is used | `noreply@example.com` | No | The sender. If it is left unset in production, mail goes out from `example.com` |
 | `SMTP_HOST`, `SMTP_PORT` | When `smtp` | `localhost`, 587 | No | Port 465 uses implicit TLS |

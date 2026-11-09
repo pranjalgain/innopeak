@@ -16,6 +16,9 @@ export function SiteFooter() {
         </div>
 
         <nav className="flex flex-wrap items-start gap-x-6 gap-y-3 text-sm" aria-label={t("ariaLabel")}>
+          <Link href={ROUTES.PRIVACY} className="text-muted-foreground transition-colors hover:text-foreground">
+            {t("privacyPolicy")}
+          </Link>
           <Link href={ROUTES.LOGIN} className="text-muted-foreground transition-colors hover:text-foreground">
             {t("signIn")}
           </Link>

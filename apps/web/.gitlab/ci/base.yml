@@ -1,5 +1,5 @@
 default:
-  image: node:22-alpine
+  image: node:24.22.1-alpine
   interruptible: true
   cache:
     key:

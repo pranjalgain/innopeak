@@ -9,6 +9,8 @@ import { EnvConfig } from '@config/env.config';
 import { AuthDbService } from '@db/repositories/auth/auth.db-service';
 import type { SsoEmailLinkResult, TenantRow } from '@db/repositories/auth/types/auth.type';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
+import { EmailProvider } from '@email/providers/email.provider';
+import { canDeliverEmail } from '@email/utils/email-config.util';
 import { MediaService } from '@media/media.service';
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -24,7 +26,12 @@ import { SessionRevocationService } from './session-revocation.service';
 import { SignupBindingService } from './signup-binding.service';
 import { TokenService } from './token.service';
 
-import { SSO_REDIRECT, SsoAuthFailure, SsoProvider } from '../constants/sso-auth.constants';
+import {
+  IDENTITY_PROVIDER_FOR,
+  SSO_REDIRECT,
+  SsoAuthFailure,
+  SsoProvider,
+} from '../constants/sso-auth.constants';
 import { AcceptMemberInviteDto } from '../dto/accept-member-invite.dto';
 import { AuthenticatedUserDto } from '../dto/authenticated-user.dto';
 import { ChangePasswordDto } from '../dto/change-password.dto';
@@ -127,7 +134,8 @@ export class AuthService {
     private readonly mediaService: MediaService,
     private readonly platformSettingsDbService: PlatformSettingsDbService,
     private readonly sessionRevocationService: SessionRevocationService,
-    private readonly signupBindingService: SignupBindingService
+    private readonly signupBindingService: SignupBindingService,
+    private readonly emailProvider: EmailProvider
   ) {}
 
   /**
@@ -670,12 +678,60 @@ export class AuthService {
   }
 
   /**
+   * Microsoft counterpart of `buildMemberInviteGoogleRedirect`: validates the token and the
+   * `microsoft_login_enabled` switch read-only, then mints `OAuthIntent.INVITE` for the shared
+   * Microsoft callback. Never throws; the browser is mid-navigation.
+   */
+  async buildMemberInviteMicrosoftRedirect(inviteToken: string): Promise<SsoAuthorizeRedirect> {
+    const invite = await this.authDbService.findMemberInviteEmailByTokenHash(
+      hashToken(inviteToken)
+    );
+    if (!invite) {
+      return {
+        ok: false,
+        redirectUrl: this.memberInviteFailureUrl(
+          inviteToken,
+          SsoAuthFailure.INVALID_OR_EXPIRED_INVITE
+        ),
+      };
+    }
+
+    if (
+      !this.microsoftIdentityProvider.isConfigured() ||
+      !(await this.isMicrosoftSignInEnabled())
+    ) {
+      return {
+        ok: false,
+        redirectUrl: this.memberInviteFailureUrl(inviteToken, SsoAuthFailure.NOT_CONFIGURED),
+      };
+    }
+
+    const minted = await this.oauthStateService.mint({
+      provider: SsoProvider.MICROSOFT,
+      intent: OAuthIntent.INVITE,
+      inviteToken,
+      pkce: true,
+    });
+
+    return {
+      ok: true,
+      authorizationUrl: this.microsoftIdentityProvider.buildAuthorizationUrl({
+        state: minted.state,
+        nonce: minted.nonce,
+        codeChallenge: minted.codeChallenge ?? '',
+      }),
+      sid: minted.sid,
+    };
+  }
+
+  /**
    * Never throws: called from the shared callback, with the browser mid-navigation. `name` comes
-   * from the Google profile since a Google-only member has no password form. `inviteToken` is only
+   * from the provider profile since an SSO-only member has no password form. `inviteToken` is only
    * undefined if the state record lost it; handled defensively, as there is no token to build a
    * targeted redirect from.
    */
-  private async completeMemberInviteGoogle(
+  private async completeMemberInviteSso(
+    provider: SsoProvider,
     inviteToken: string | undefined,
     identity: SsoIdentity
   ): Promise<SsoCallbackOutcome> {
@@ -701,7 +757,7 @@ export class AuthService {
       };
     }
 
-    // Stops someone else from redeeming this link with their own Google account: the token alone
+    // Stops someone else from redeeming this link with their own SSO account: the token alone
     // proves nothing about whose account completes it. Token is left unconsumed on a mismatch.
     if (normalizeEmail(identity.email) !== normalizeEmail(invite.email)) {
       return {
@@ -723,21 +779,23 @@ export class AuthService {
       };
     }
 
-    const result = await this.authDbService.acceptMemberInviteWithGoogleIdentity({
+    const result = await this.authDbService.acceptMemberInviteWithSsoIdentity({
       tokenHash: hashToken(inviteToken),
+      provider: IDENTITY_PROVIDER_FOR[provider],
       providerUserId: identity.providerUserId,
       email: identity.email,
       name: identity.name ?? identity.email,
     });
 
     if (result.outcome === 'identity_already_linked') {
+      const failure =
+        provider === SsoProvider.MICROSOFT
+          ? SsoAuthFailure.MICROSOFT_IDENTITY_ALREADY_LINKED
+          : SsoAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED;
       return {
         ok: false,
-        failure: SsoAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED,
-        redirectUrl: this.memberInviteFailureUrl(
-          inviteToken,
-          SsoAuthFailure.GOOGLE_IDENTITY_ALREADY_LINKED
-        ),
+        failure,
+        redirectUrl: this.memberInviteFailureUrl(inviteToken, failure),
       };
     }
     if (result.outcome !== 'accepted') {
@@ -899,7 +957,8 @@ export class AuthService {
     // No `platform_admin_identities` lookup: this is always the first time the admin links Google,
     // and completion is only about redeeming `inviteToken`.
     if (consumed.record.intent === OAuthIntent.ADMIN_INVITE) {
-      const outcome = await this.platformAdminAuthService.completeAdminInviteGoogle(
+      const outcome = await this.platformAdminAuthService.completeAdminInviteSso(
+        SsoProvider.GOOGLE,
         inviteToken,
         identity
       );
@@ -909,7 +968,7 @@ export class AuthService {
     }
 
     if (consumed.record.intent === OAuthIntent.INVITE) {
-      return this.completeMemberInviteGoogle(inviteToken, identity);
+      return this.completeMemberInviteSso(SsoProvider.GOOGLE, inviteToken, identity);
     }
 
     // Resolves against `platform_admin_identities` only: unlike `LOGIN` it must never fall through
@@ -1042,9 +1101,14 @@ export class AuthService {
    * `platform_settings.password_login_enabled` is the platform's email/password switch, enforced here and not only by hiding the form.
    * Off, it refuses every way of getting a session from an email and a password: sign-up, sign-in, the code that completes a sign-up,
    * and accepting an invitation with a password. It does not end sessions that already exist, and platform admins sign in through
-   * `PlatformAdminAuthService`, which never consults it. A missing row reads as on (the column default).
+   * `PlatformAdminAuthService`, which never consults it. A missing row reads as on (the column default), and the switch is only in effect
+   * while this server can deliver email (`canDeliverEmail`), the same rule `GET /v1/settings/platform-config` reports.
    */
   private async isPasswordAuthEnabled(): Promise<boolean> {
+    // Not in effect without an email service, whatever is stored: the code that completes a sign-up could not be sent.
+    if (!canDeliverEmail(this.emailProvider, this.configService)) {
+      return false;
+    }
     const settings = await this.platformSettingsDbService.get();
     return settings?.passwordLoginEnabled !== false;
   }
@@ -1082,18 +1146,21 @@ export class AuthService {
       input.state,
       input.sid
     );
-    // Only the intents the Microsoft authorize routes can mint (tenant login/signup, and the admin sign-in
-    // route); anything else is not ours to act on.
+    // Only the intents the Microsoft authorize routes can mint (tenant login/signup, the admin
+    // sign-in route, and the member/admin invite routes); anything else is not ours to act on.
     const intent =
       consumed.ok &&
       (consumed.record.intent === OAuthIntent.LOGIN ||
         consumed.record.intent === OAuthIntent.SIGNUP ||
-        consumed.record.intent === OAuthIntent.ADMIN_LOGIN)
+        consumed.record.intent === OAuthIntent.ADMIN_LOGIN ||
+        consumed.record.intent === OAuthIntent.INVITE ||
+        consumed.record.intent === OAuthIntent.ADMIN_INVITE)
         ? consumed.record.intent
         : undefined;
+    const inviteToken = consumed.ok ? consumed.record.inviteToken : undefined;
 
     if (input.error !== undefined) {
-      return this.ssoFailureRedirect(providerErrorFailure(input.error), intent);
+      return this.ssoFailureRedirect(providerErrorFailure(input.error), intent, inviteToken);
     }
 
     if (!consumed.ok || intent === undefined) {
@@ -1101,13 +1168,15 @@ export class AuthService {
     }
 
     // Re-checked here: the switch may have been turned off while this person was at Microsoft. The tenant switch
-    // governs tenant sign-in only; admin sign-in has its own configuration (see `isAdminMicrosoftConfigured`).
-    const isAdminLogin = intent === OAuthIntent.ADMIN_LOGIN;
-    const available = isAdminLogin
+    // governs tenant sign-in/sign-up and member invites; the admin intents have their own configuration (see
+    // `isAdminMicrosoftConfigured`).
+    const isAdminIntent =
+      intent === OAuthIntent.ADMIN_LOGIN || intent === OAuthIntent.ADMIN_INVITE;
+    const available = isAdminIntent
       ? this.platformAdminAuthService.isAdminMicrosoftConfigured()
       : await this.isMicrosoftSignInEnabled();
     if (!available) {
-      return this.ssoFailureRedirect(SsoAuthFailure.NOT_CONFIGURED, intent);
+      return this.ssoFailureRedirect(SsoAuthFailure.NOT_CONFIGURED, intent, inviteToken);
     }
 
     if (
@@ -1115,12 +1184,14 @@ export class AuthService {
       input.code === '' ||
       consumed.record.codeVerifier === undefined
     ) {
-      return this.ssoFailureRedirect(SsoAuthFailure.PROVIDER_ERROR, intent);
+      return this.ssoFailureRedirect(SsoAuthFailure.PROVIDER_ERROR, intent, inviteToken);
     }
 
     let identity: SsoIdentity;
     try {
-      const tenantId = isAdminLogin
+      // Every admin round trip is pinned to the organization's directory, so a personal account or
+      // another tenant never even reaches the token exchange.
+      const tenantId = isAdminIntent
         ? this.platformAdminAuthService.adminMicrosoftTenantId()
         : undefined;
       identity = await this.microsoftIdentityProvider.fetchIdentity(input.code, {
@@ -1130,10 +1201,34 @@ export class AuthService {
       });
     } catch (error) {
       this.logger.warn(`Microsoft identity exchange failed: ${(error as Error).message}`);
-      return this.ssoFailureRedirect(SsoAuthFailure.PROVIDER_ERROR, intent);
+      return this.ssoFailureRedirect(SsoAuthFailure.PROVIDER_ERROR, intent, inviteToken);
     }
 
-    if (isAdminLogin) {
+    // Invite redemption decides who someone is from the email alone, so it must be verified. Tenant
+    // sign-in/sign-up checks this in `resolveTenantSsoIdentity`, which is not reached for invites.
+    if (
+      (intent === OAuthIntent.INVITE || intent === OAuthIntent.ADMIN_INVITE) &&
+      !identity.emailVerified
+    ) {
+      return this.ssoFailureRedirect(SsoAuthFailure.EMAIL_NOT_VERIFIED, intent, inviteToken);
+    }
+
+    if (intent === OAuthIntent.ADMIN_INVITE) {
+      const outcome = await this.platformAdminAuthService.completeAdminInviteSso(
+        SsoProvider.MICROSOFT,
+        inviteToken,
+        identity
+      );
+      return outcome.ok
+        ? { ok: true, kind: 'admin_signed_in', tokens: outcome.tokens }
+        : { ok: false, failure: outcome.failure, redirectUrl: outcome.redirectUrl };
+    }
+
+    if (intent === OAuthIntent.INVITE) {
+      return this.completeMemberInviteSso(SsoProvider.MICROSOFT, inviteToken, identity);
+    }
+
+    if (intent === OAuthIntent.ADMIN_LOGIN) {
       const admin = await this.platformAdminAuthService.signInWithMicrosoft(identity);
       return admin.ok
         ? { ok: true, kind: 'admin_signed_in', tokens: admin.tokens }

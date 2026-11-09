@@ -18,6 +18,8 @@ interface UseAcceptAdminInviteResult {
   acceptWithPassword: (password: string) => Promise<boolean>;
   /** Navigates away — there is no return value to check. */
   startWithGoogle: () => void;
+  /** Navigates away — there is no return value to check. */
+  startWithMicrosoft: () => void;
 }
 
 /** Validates the token on mount (so a dead link fails before a password is typed), then offers password or Google. */
@@ -69,5 +71,17 @@ export function useAcceptAdminInvite(token: string): UseAcceptAdminInviteResult 
     AuthService.startAdminInviteGoogle(token);
   }, [token]);
 
-  return { isValidating, invite, invalid, isSubmitting, acceptWithPassword, startWithGoogle };
+  const startWithMicrosoft = useCallback(() => {
+    AuthService.startAdminInviteMicrosoft(token);
+  }, [token]);
+
+  return {
+    isValidating,
+    invite,
+    invalid,
+    isSubmitting,
+    acceptWithPassword,
+    startWithGoogle,
+    startWithMicrosoft,
+  };
 }

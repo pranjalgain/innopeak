@@ -1,21 +1,3 @@
-CREATE TYPE platform_activity_type AS ENUM (
-    'business_suspended',
-    'business_reactivated',
-    'admin_invite_sent',
-    'admin_invite_revoked',
-    'user_activated',
-    'user_deactivated',
-    'admin_disabled',
-    'admin_enabled',
-    'business_erasure_requested',
-    'business_erasure_cancelled',
-    'business_erased',
-    -- A new business finished signing up (its owner verified their email, or signed up with Google/Microsoft).
-    'business_joined',
-    -- A platform admin changed the platform-wide switches; `details` says which and from what to what.
-    'platform_settings_changed'
-);
-
 CREATE TABLE IF NOT EXISTS platform_activity_log (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     type platform_activity_type NOT NULL,

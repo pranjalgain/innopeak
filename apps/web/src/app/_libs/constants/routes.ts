@@ -1,5 +1,6 @@
 export const ROUTES = {
   HOME: "/",
+  PRIVACY: "/privacy",
   LOGIN: "/login",
   // Deliberately not /admin/login: a path under /admin/* could suggest it is inside the guarded
   // admin shell when it must be public.

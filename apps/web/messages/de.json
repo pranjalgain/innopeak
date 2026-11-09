@@ -114,8 +114,49 @@
       "tagline": "KI-unterstützte Antworten für Google Unternehmensprofil-Bewertungen — immer von einem Menschen geprüft, bevor sie veröffentlicht werden.",
       "signIn": "Anmelden",
       "getStarted": "Jetzt starten",
+      "privacyPolicy": "Datenschutzerklärung",
       "copyright": "© {year} InnoPeak. Alle Rechte vorbehalten."
     }
+  },
+  "privacy": {
+    "title": "Datenschutzerklärung",
+    "description": "Wie InnoPeak Daten erhebt, verwendet, speichert und schützt.",
+    "lastUpdated": "Zuletzt aktualisiert: März 2026",
+    "intro": "InnoPeak hilft Unternehmen bei der Verwaltung von Google Unternehmensprofil-Bewertungen. Diese Erklärung beschreibt, welche Daten wir erheben, wie wir sie verwenden und welche Möglichkeiten Sie haben.",
+    "sections": [
+      {
+        "heading": "Erhobene Daten",
+        "body": "Wir erheben Konten- und Unternehmensinformationen, die Sie angeben, Bewertungsinhalte aus verbundenen Google Unternehmensprofilen, generierte Antwortentwürfe, Freigabeentscheidungen sowie grundlegende Nutzungs- und Audit-Protokolle, die für den Betrieb des Dienstes erforderlich sind."
+      },
+      {
+        "heading": "Google Unternehmensprofil-Daten",
+        "body": "Wenn Sie ein Google Unternehmensprofil verbinden, greifen wir auf Bewertungs- und Standortdaten zu, die für das Erstellen und Veröffentlichen von Antworten erforderlich sind. Wir fordern nur die Berechtigungen an, die für diesen Ablauf erforderlich sind, und greifen nicht auf andere Google-Daten zu."
+      },
+      {
+        "heading": "KI-Verarbeitung",
+        "body": "Bewertungstexte und Unternehmenskontext können an unseren KI-Anbieter gesendet werden, um Antwortentwürfe zu generieren. Entwürfe werden nicht automatisch veröffentlicht; ein Mensch prüft sie zuerst. Wir verwenden Ihre Daten nicht zum Trainieren von Modellen."
+      },
+      {
+        "heading": "Cookies und Sitzungen",
+        "body": "Wir verwenden essenzielle Cookies und Sitzungstoken, um Sie zu authentifizieren, angemeldet zu halten und Ihr Konto zu schützen. Wir verwenden keine Werbe- oder Tracking-Cookies."
+      },
+      {
+        "heading": "Datenspeicherung",
+        "body": "Wir speichern Daten, solange Ihr Konto aktiv ist und so lange, wie es für die Bereitstellung des Dienstes, die Einhaltung gesetzlicher Pflichten, die Beilegung von Streitigkeiten und die Durchsetzung unserer Vereinbarungen erforderlich ist."
+      },
+      {
+        "heading": "Löschung",
+        "body": "Sie können die Löschung Ihres Kontos und der zugehörigen Unternehmensdaten im Einstellungsbereich anfordern. Einige Datensätze können dort aufbewahrt werden, wo dies gesetzlich vorgeschrieben ist oder der Sicherheit und Betrugsprävention dient."
+      },
+      {
+        "heading": "Ihre Rechte",
+        "body": "Je nach Ihrem Standort haben Sie möglicherweise Rechte auf Zugang, Berichtigung, Export oder Löschung Ihrer personenbezogenen Daten. Kontaktieren Sie uns, um diese Rechte auszuüben."
+      },
+      {
+        "heading": "Kontakt",
+        "body": "Fragen zu dieser Erklärung oder zu Ihren Daten können über den Support-Kanal gesendet werden, der in Ihrem Konto angegeben ist."
+      }
+    ]
   },
   "pageTitles": {
     "acceptInvite": "Einladung annehmen",
@@ -230,12 +271,13 @@
       "title": "Sie sind eingeladen",
       "invitedAs": "Legen Sie ein Passwort fest, um die Einrichtung für {email} abzuschließen.",
       "invitedAsWithGoogle": "Legen Sie ein Passwort fest, um die Einrichtung für {email} abzuschließen, oder fahren Sie mit Google fort.",
-      "passwordLabel": "Passwort",
+      "invitedAsWithMicrosoft": "Legen Sie ein Passwort fest, um die Einrichtung für {email} abzuschließen, oder fahren Sie mit Microsoft fort.",      "invitedAsWithSso": "Legen Sie ein Passwort fest, um die Einrichtung für {email} abzuschließen, oder fahren Sie mit Google oder Microsoft fort.",      "passwordLabel": "Passwort",
       "confirmPasswordLabel": "Passwort bestätigen",
       "submit": "Einladung annehmen",
       "submitting": "Wird angenommen…",
       "orDivider": "oder",
       "continueWithGoogle": "Mit Google fortfahren",
+      "continueWithMicrosoft": "Mit Microsoft fortfahren",
       "invalidTitle": "Diese Einladung ist ungültig",
       "invalidDescription": "Dieser Link ist ungültig oder abgelaufen. Bitten Sie die einladende Person um einen neuen Link.",
       "backToLogin": "Zurück zur Anmeldung",
@@ -254,13 +296,14 @@
       "title": "Sie sind eingeladen",
       "invitedAs": "Richten Sie Ihr Konto ein, um als {email} beizutreten.",
       "invitedAsWithGoogle": "Richten Sie Ihr Konto ein, um als {email} beizutreten, oder fahren Sie mit Google fort.",
-      "nameLabel": "Ihr Name",
+      "invitedAsWithMicrosoft": "Richten Sie Ihr Konto ein, um als {email} beizutreten, oder fahren Sie mit Microsoft fort.",      "invitedAsWithSso": "Richten Sie Ihr Konto ein, um als {email} beizutreten, oder fahren Sie mit Google oder Microsoft fort.",      "nameLabel": "Ihr Name",
       "passwordLabel": "Passwort",
       "confirmPasswordLabel": "Passwort bestätigen",
       "submit": "Einladung annehmen",
       "submitting": "Wird angenommen…",
       "orDivider": "oder",
       "continueWithGoogle": "Mit Google fortfahren",
+      "continueWithMicrosoft": "Mit Microsoft fortfahren",
       "invalidTitle": "Diese Einladung ist ungültig",
       "invalidDescription": "Dieser Link ist ungültig oder abgelaufen. Bitten Sie die einladende Person um einen neuen Link.",
       "unavailableTitle": "Etwas ist schiefgelaufen",
@@ -310,6 +353,7 @@
       "INVALID_OR_EXPIRED_INVITE": "Dieser Einladungslink ist ungültig oder abgelaufen.",
       "INVITE_EMAIL_MISMATCH": "Die E-Mail-Adresse dieses Google-Kontos stimmt nicht mit der eingeladenen Adresse überein. Melden Sie sich bei Google mit der Adresse an, an die die Einladung gesendet wurde.",
       "GOOGLE_IDENTITY_ALREADY_LINKED": "Dieses Google-Konto ist bereits mit einem anderen Konto verknüpft.",
+      "MICROSOFT_IDENTITY_ALREADY_LINKED": "Dieses Microsoft-Konto ist bereits mit einem anderen Konto verknüpft.",
       "google": {
         "NO_ACCOUNT": "Für diese Google-Adresse wurde kein Konto gefunden. Bitte zuerst registrieren.",
         "ACCESS_DENIED": "Die Google-Anmeldung wurde abgebrochen.",
@@ -324,6 +368,8 @@
         "EMAIL_NOT_VERIFIED": "Microsoft hat für dieses Konto keine verifizierte E-Mail-Adresse bestätigt. Bitten Sie Ihre Microsoft-Administration, die E-Mail-Adresse des Kontos festzulegen und zu verifizieren, oder nutzen Sie E-Mail und Passwort.",
         "PROVIDER_ERROR": "Die Anmeldung bei Microsoft konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut.",
         "NOT_CONFIGURED": "Die Microsoft-Anmeldung ist derzeit nicht verfügbar. Bitte verwenden Sie eine andere Anmeldemethode.",
+        "INVITE_EMAIL_MISMATCH": "Die E-Mail-Adresse dieses Microsoft-Kontos stimmt nicht mit der eingeladenen Adresse überein. Melden Sie sich bei Microsoft mit der Adresse an, an die die Einladung gesendet wurde.",
+        "MICROSOFT_IDENTITY_ALREADY_LINKED": "Dieses Microsoft-Konto ist bereits mit einem anderen Konto verknüpft.",
         "fallback": "Die Microsoft-Anmeldung wurde nicht abgeschlossen. Bitte versuchen Sie es erneut."
       },
       "admin": {

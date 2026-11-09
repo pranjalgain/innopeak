@@ -46,6 +46,8 @@ describe("AcceptInviteView", () => {
       passwordLoginEnabled: true,
       googleLoginEnabled: true,
       inviteMembersEnabled: true, notificationSettingsEnabled: false,
+      adminGoogleLoginAvailable: true,
+      adminMicrosoftLoginAvailable: false,
     });
     vi.spyOn(AuthService, "validateAdminInvite").mockResolvedValue({
       email: "priya.ops@innopeak.com",
@@ -67,8 +69,10 @@ describe("AcceptInviteView", () => {
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
       microsoftLoginEnabled: false,
       passwordLoginEnabled: true,
-      googleLoginEnabled: false,
+      googleLoginEnabled: true,
       inviteMembersEnabled: true, notificationSettingsEnabled: false,
+      adminGoogleLoginAvailable: false,
+      adminMicrosoftLoginAvailable: false,
     });
 
     renderView();
@@ -145,8 +149,10 @@ describe("AcceptInviteView", () => {
     vi.spyOn(PlatformSettingsService, "get").mockResolvedValue({
       microsoftLoginEnabled: false,
       passwordLoginEnabled: true,
-      googleLoginEnabled: false,
+      googleLoginEnabled: true,
       inviteMembersEnabled: true, notificationSettingsEnabled: false,
+      adminGoogleLoginAvailable: false,
+      adminMicrosoftLoginAvailable: false,
     });
 
     renderView();

@@ -2,6 +2,7 @@ import { GoogleIdentityProvider } from '@auth/providers/google-identity.provider
 import { DEFAULT_ERASURE_GRACE_PERIOD_DAYS } from '@common/constants/erasure.constants';
 import { MESSAGES } from '@common/constants/messages.constants';
 import { PlatformSettingsDbService } from '@db/repositories/platform-settings/platform-settings.db-service';
+import { EmailProvider } from '@email/providers/email.provider';
 import { InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { TestingModule } from '@nestjs/testing';
@@ -20,6 +21,7 @@ describe('PlatformSettingsService', () => {
   let platformSettingsDbService: { get: jest.Mock };
   let configService: { get: jest.Mock };
   const googleIdentityProvider = { isConfigured: jest.fn().mockReturnValue(false) };
+  const emailProvider = { isConfigured: jest.fn().mockReturnValue(true) };
 
   const row = {
     microsoftLoginEnabled: true,
@@ -33,7 +35,10 @@ describe('PlatformSettingsService', () => {
   beforeEach(async () => {
     platformSettingsDbService = { get: jest.fn() };
     configService = {
-      get: jest.fn((key: string) => (key === 'PAYMENT_FEATURE_ENABLED' ? 'false' : undefined)),
+      get: jest.fn((key: string) => {
+        if (key === 'EMAIL_DELIVERY_ENABLED') return 'true';
+        return key === 'PAYMENT_FEATURE_ENABLED' ? 'false' : undefined;
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -42,6 +47,7 @@ describe('PlatformSettingsService', () => {
         { provide: PlatformSettingsDbService, useValue: platformSettingsDbService },
         { provide: ConfigService, useValue: configService },
         { provide: GoogleIdentityProvider, useValue: googleIdentityProvider },
+        { provide: EmailProvider, useValue: emailProvider },
       ],
     }).compile();
 
@@ -67,7 +73,7 @@ describe('PlatformSettingsService', () => {
   // The route is `@Public()` and the DTO is shared with the admin-only PATCH, so the DTO is all that
   // keeps `updated_by_platform_admin_id` off an unauthenticated response. Exact key set (not a
   // `not.toHaveProperty`) so any column newly mapped in `from()` fails here.
-  it('exposes only the nine public settings — never the internal actor id', async () => {
+  it('exposes only the public settings — never the internal actor id', async () => {
     platformSettingsDbService.get.mockResolvedValue(row);
 
     const result = await target.get();
@@ -75,6 +81,7 @@ describe('PlatformSettingsService', () => {
     expect(Object.keys(result).sort()).toEqual([
       'adminGoogleLoginAvailable',
       'adminMicrosoftLoginAvailable',
+      'emailDeliveryAvailable',
       'erasureGracePeriodDays',
       'googleLoginEnabled',
       'inviteMembersEnabled',
@@ -140,5 +147,40 @@ describe('PlatformSettingsService', () => {
 
     googleIdentityProvider.isConfigured.mockReturnValue(false);
     expect((await target.get()).adminGoogleLoginAvailable).toBe(false);
+  });
+
+  // Regression: a fresh production install stores the switch on, and with no email service it offered a sign-up whose code never arrived.
+  describe('email/password', () => {
+    beforeEach(() => {
+      platformSettingsDbService.get.mockResolvedValue({ ...row, passwordLoginEnabled: true });
+    });
+
+    afterEach(() => {
+      emailProvider.isConfigured.mockReturnValue(true);
+    });
+
+    it('is reported on when the switch is on and email can be delivered', async () => {
+      expect((await target.get()).passwordLoginEnabled).toBe(true);
+    });
+
+    it('is reported off, whatever is stored, while no email service is set up', async () => {
+      emailProvider.isConfigured.mockReturnValue(false);
+      expect((await target.get()).passwordLoginEnabled).toBe(false);
+    });
+
+    it('is reported off while EMAIL_DELIVERY_ENABLED is off, even with a configured provider', async () => {
+      configService.get.mockImplementation(
+        configWith({ PAYMENT_FEATURE_ENABLED: 'false', EMAIL_DELIVERY_ENABLED: 'false' })
+      );
+
+      expect((await target.get()).emailDeliveryAvailable).toBe(false);
+      expect((await target.get()).passwordLoginEnabled).toBe(false);
+    });
+
+    // Email delivery is not implemented yet: the local provider only logs the message, so it cannot be counted as delivery.
+    it('is reported off on a developer machine too, since the log reaches nobody', async () => {
+      emailProvider.isConfigured.mockReturnValue(false);
+      expect((await target.get()).passwordLoginEnabled).toBe(false);
+    });
   });
 });

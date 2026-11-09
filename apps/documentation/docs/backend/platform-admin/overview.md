@@ -61,10 +61,10 @@ other modules. Column-level detail lives in the migrations; this table is the ma
 |---|---|
 | `platform_admins` | The support/ops staff account. `id`, `email`, `password_hash` (nullable — SSO-only admins have none), `invited_by_platform_admin_id` (nullable self-FK, `ON DELETE SET NULL`), `status` (`platform_admin_status`), `created_at`, `updated_at`. **No `role` column and no `name` column** — a flat hierarchy, differentiated only by invite lineage. Unique index on `email`; partial unique index `idx_platform_admins_single_root ON platform_admins((TRUE)) WHERE invited_by_platform_admin_id IS NULL` enforces **at most** one root admin — zero also satisfies it, which is why the root has to be seeded (`0001_platform_admin.sql:29-31`). |
 | `platform_admin_identities` | One row per (admin, external provider). `platform_admin_id`, `provider` (`user_identity_provider`), `provider_user_id`. Unique on `(provider, provider_user_id)`. Unlike `user_identities`, it has **no `email` column**. Owned by the auth module; this module only reads it to show how an admin signs in. |
-| `platform_admin_invites` | One-time tokens for admin invite and password reset. `platform_admin_id`, `token_hash`, `purpose` (`platform_admin_invite_purpose`), `expires_at`, `used_at`. Unique on `token_hash`. Owned entirely by the auth module — this module never writes it. |
+| `platform_admin_auth_tokens` | One-time tokens for admin invite and password reset. `platform_admin_id`, `token_hash`, `purpose` (`platform_admin_invite_purpose`), `expires_at`, `used_at`. Unique on `token_hash`. Owned entirely by the auth module — this module never writes it. |
 | `tenants` | **The one cross-tenant table this module writes.** `id`, `name`, `created_by_platform_admin_id` (nullable FK → `platform_admins`, `ON DELETE SET NULL`), `status` (`tenant_status`, default `pending_activation`). Indexed on `status` and on `created_by_platform_admin_id`. Suspension writes `status`; provisioning writes the whole row including `created_by_platform_admin_id`. |
 | `users` | Read for the tenant-inspection view (who owns this tenant, how many members, what state are they in). Written once, on support-assisted provisioning, to create the invited owner row — `role = 'owner'`, `status = 'invited'`, `invited_by_user_id = NULL` (`PLAN.md` §4.3d; that column is a self-FK to `users`, so it cannot point at a `platform_admins` row). |
-| `password_reset_tokens` | Written once, on support-assisted provisioning, with `purpose = 'invite'`. The token's *mechanics* are the auth module's — see [`POST /v1/auth/invite/accept`](../auth/api-reference.md#post-v1authinviteaccept). |
+| `user_auth_tokens` | Written once, on support-assisted provisioning, with `purpose = 'invite'`. The token's *mechanics* are the auth module's — see [`POST /v1/auth/invite/accept`](../auth/api-reference.md#post-v1authinviteaccept). |
 | `tenant_settings` | Written once, on provisioning, because classification depends on the row existing (`PLAN.md` §8.10). The insert can omit `escalation_rating_threshold` — it is `NOT NULL DEFAULT 3`. Read-only otherwise. |
 | `review_provider_connections`, `locations`, `sync_runs` | Read-only, for the connection/sync health shown in tenant inspection and platform metrics. `review_provider_connections.status` (`google_connection_status`) and `locations.last_synced_at` / `last_sync_status` / `last_sync_error` are the health signals; see [Connections Module](../connections/overview.md). |
 | `reviews` | Read-only, aggregate only — counts by `status` and `classification` for the metrics overview. Never row-level: a platform admin has no business reading `reviewer_name` or `review_text` out of the metrics path. |
@@ -158,7 +158,7 @@ admin provisions the tenant and invites its owner in one step, for assisted or s
 onboarding. §4.3d's own sequence diagram has the full flow; the short version is one transaction
 writing `tenants` (`created_by_platform_admin_id = <caller>`, `status = 'pending_activation'`),
 `users` (`role = 'owner'`, `status = 'invited'`, `invited_by_user_id = NULL`), `tenant_settings`
-(defaults), and `password_reset_tokens` (`purpose = 'invite'`) — §8.10's atomicity concern applies
+(defaults), and `user_auth_tokens` (`purpose = 'invite'`) — §8.10's atomicity concern applies
 here identically.
 
 The invited owner's `status` is `invited`, not `pending_verification`, because the platform admin
@@ -178,11 +178,11 @@ and it closes that gap.
 Most tables in this schema carry a `tenant_id UUID NOT NULL`, so most queries are single-tenant
 by construction. Eleven do not, and the distinction matters here. Six are platform-level rather
 than tenant data at all — `tenants`, `platform_admins`, `platform_admin_identities`,
-`platform_admin_invites`, `platform_settings`, and `platform_activity_log` (which does have a
+`platform_admin_auth_tokens`, `platform_settings`, and `platform_activity_log` (which does have a
 `tenant_id`, but nullable: it is set on the `business_*` and `user_*` activity types, and NULL on
 the admin-targeted ones, where `platform_activity_log_target_check` requires it to be).
 The other five are tenant data that is scoped only **transitively, through a parent FK**:
-`user_identities`, `password_reset_tokens` and `refresh_tokens` (via `users`), `user_locations`
+`user_identities`, `user_auth_tokens` and `refresh_tokens` (via `users`), `user_locations`
 (via `locations` — see [Connections](../connections/overview.md#data-model)), and
 `prompt_versions` (via `prompts` — see [Prompts](../prompts/overview.md#data-model); `tone` itself
 is a column on `prompts`, so it carries `tenant_id` directly and isn't in this list). On those
@@ -369,7 +369,7 @@ To be built:
   `src/db/repositories/platform-admin/` per the four-layer convention — Controller → Service → DB
   Service → Repository, with the Service never importing the Repository and never running a
   Drizzle query. The DB Service owns §4.3d's four-table provisioning transaction (`tenants` +
-  `users` + `tenant_settings` + `password_reset_tokens`), which is exactly the multi-repository
+  `users` + `tenant_settings` + `user_auth_tokens`), which is exactly the multi-repository
   transaction that layer exists for.
 - **Route names.** `src/common/route-names.ts` has **no** `PLATFORM_ADMIN*` entries of any kind
   today — including `RouteNames.PLATFORM_ADMIN_AUTH`, which auth's api-reference already cites as

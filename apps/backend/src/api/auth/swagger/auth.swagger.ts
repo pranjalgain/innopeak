@@ -753,6 +753,30 @@ export function ApiInviteGoogleAuthorize(): ReturnType<typeof applyDecorators> {
   );
 }
 
+export function ApiInviteMicrosoftAuthorize(): ReturnType<typeof applyDecorators> {
+  return applyDecorators(
+    ApiOperation({
+      summary: 'Accept a tenant-member invite via Microsoft',
+      description:
+        'The Microsoft alternative to `POST /v1/auth/invite/accept` — deliberately not the same ' +
+        'route as `GET /v1/auth/microsoft` login, since a first-time invitee has no ' +
+        '`user_identities` row yet for that callback branch to find. Re-validates the token ' +
+        '(unexpired, unused) and the `microsoft_login_enabled` switch before ever redirecting, so ' +
+        'a dead link or a switched-off provider fails fast on this screen rather than after the ' +
+        'round trip. Completion happens back at the shared `GET /v1/auth/microsoft/callback`: the ' +
+        'verified email must exactly match the invited address (`?error=INVITE_EMAIL_MISMATCH` ' +
+        "otherwise, token left unconsumed) — the check that stops someone else's Microsoft account " +
+        'from redeeming this link.',
+    }),
+    ApiParam({ name: 'token', description: 'The raw invite token from the accept-invite link' }),
+    ApiResponse({
+      status: 302,
+      description: 'Redirect to Microsoft, or to the accept page with ?error=',
+    }),
+    ApiResponse({ status: 503, description: 'MICROSOFT_CLIENT_ID / SECRET / CALLBACK_URL unset' })
+  );
+}
+
 export function ApiCompleteSsoSignup(): ReturnType<typeof applyDecorators> {
   return applyDecorators(
     ApiOperation({

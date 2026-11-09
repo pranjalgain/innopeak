@@ -28,6 +28,7 @@ import {
   ApiAdminLogin,
   ApiAdminMicrosoftLogin,
   ApiInviteGoogleAuthorize,
+  ApiInviteMicrosoftAuthorize,
   ApiValidateAdminInvite,
 } from './swagger/platform-admin-auth.swagger';
 import { setAdminSessionCookies } from './utils/admin-session-cookies.util';
@@ -150,6 +151,33 @@ export class PlatformAdminAuthController {
       GOOGLE_AUTH_SID_COOKIE_NAME,
       redirect.sid,
       buildCookieOptions(GOOGLE_AUTH_SID_COOKIE_PATH, OAUTH_STATE_TTL_SECONDS)
+    );
+    res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
+  }
+
+  /**
+   * Microsoft counterpart of the Google invite route, pinned to the admin Entra directory and
+   * completing at the shared Microsoft callback via `OAuthIntent.ADMIN_INVITE`.
+   */
+  @Get(RouteNames.INVITE_MICROSOFT)
+  @Public()
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
+  @ApiInviteMicrosoftAuthorize()
+  async inviteMicrosoftAuthorize(
+    @Param('token') token: string,
+    @Res() res: Response
+  ): Promise<void> {
+    const redirect = await this.platformAdminAuthService.buildAdminInviteMicrosoftRedirect(token);
+
+    if (!redirect.ok) {
+      res.redirect(HttpStatus.FOUND, redirect.redirectUrl);
+      return;
+    }
+
+    res.cookie(
+      MICROSOFT_AUTH_SID_COOKIE_NAME,
+      redirect.sid,
+      buildCookieOptions(MICROSOFT_AUTH_SID_COOKIE_PATH, OAUTH_STATE_TTL_SECONDS)
     );
     res.redirect(HttpStatus.FOUND, redirect.authorizationUrl);
   }

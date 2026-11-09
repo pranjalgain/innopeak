@@ -22,4 +22,8 @@ export class PlatformSettingsDbService {
   countActiveSsoOnlyTenantUsers(provider: UserIdentityProvider): Promise<number> {
     return this.platformSettingsRepository.countActiveSsoOnlyTenantUsers(provider);
   }
+
+  countActivePasswordOnlyTenantUsers(): Promise<number> {
+    return this.platformSettingsRepository.countActivePasswordOnlyTenantUsers();
+  }
 }

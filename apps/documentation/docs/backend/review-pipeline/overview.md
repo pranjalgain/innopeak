@@ -861,7 +861,7 @@ left for stale PII to leak into, there is no second redaction step to build — 
 .purgeExpiredReviewerPii`'s single `UPDATE reviews SET reviewer_name = NULL, external_reviewer_id =
 NULL, anonymized_at = now() ...` is, and is expected to remain, the whole job. The same removal also
 closes a related credential-hash concern this section used to track separately: the same generic
-trigger used to capture `users.password_hash` and `refresh_tokens` / `password_reset_tokens
+trigger used to capture `users.password_hash` and `refresh_tokens` / `user_auth_tokens
 .token_hash` verbatim on every write to those tables, redacted at the source before the earlier fix
 landed — with the audit table itself gone, there is no longer anywhere for a credential hash to leak
 into either.

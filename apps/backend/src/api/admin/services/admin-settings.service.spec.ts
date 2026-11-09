@@ -61,6 +61,7 @@ describe('AdminSettingsService', () => {
     get: jest.Mock;
     update: jest.Mock;
     countActiveSsoOnlyTenantUsers: jest.Mock;
+    countActivePasswordOnlyTenantUsers: jest.Mock;
   };
   let googleProvider: { isConfigured: jest.Mock };
   let microsoftProvider: { isConfigured: jest.Mock };
@@ -140,6 +141,7 @@ describe('AdminSettingsService', () => {
       get: jest.fn(),
       update: jest.fn(),
       countActiveSsoOnlyTenantUsers: jest.fn().mockResolvedValue(0),
+      countActivePasswordOnlyTenantUsers: jest.fn().mockResolvedValue(0),
     };
     adminOverviewDbService = { recordActivityBestEffort: jest.fn() };
     hashingService = { hash: jest.fn(), compare: jest.fn() };
@@ -149,6 +151,7 @@ describe('AdminSettingsService', () => {
     };
     configService = {
       get: jest.fn((key: string) => {
+        if (key === 'EMAIL_DELIVERY_ENABLED') return 'true';
         return key === 'FRONTEND_URL' ? 'https://app.innopeak.test' : undefined;
       }),
     };
@@ -469,7 +472,7 @@ describe('AdminSettingsService', () => {
     });
 
     /**
-     * `platform_admin_invites.token_hash` is UNIQUE and OTPs are 6 digits (in dev every admin gets the same
+     * `platform_admin_auth_tokens.token_hash` is UNIQUE and OTPs are 6 digits (in dev every admin gets the same
      * code), so the digest is bound to the admin: identical codes must still store different hashes.
      */
     it('stores a digest bound to the admin, so an identical code from two admins cannot collide', async () => {
@@ -520,7 +523,7 @@ describe('AdminSettingsService', () => {
       expect(adminOverviewDbService.recordActivityBestEffort).not.toHaveBeenCalled();
     });
 
-    // Nothing sweeps `platform_admin_invites`, so a lapsed invite must not claim its address forever.
+    // Nothing sweeps `platform_admin_auth_tokens`, so a lapsed invite must not claim its address forever.
     it('replaces a lapsed invite instead of refusing the address forever', async () => {
       platformAdminDbService.findByEmail.mockResolvedValue({
         id: 'stale-1',
@@ -880,21 +883,9 @@ describe('AdminSettingsService', () => {
     // mail would offer a sign-in that cannot finish.
     describe('turning email/password on', () => {
       const passwordOffRow = { ...allEnabledRow, passwordLoginEnabled: false };
-      let savedFrontendUrl: string | undefined;
 
       beforeEach(() => {
-        // `isLocalDevelopment()` reads the environment directly: a real address means this is not a developer's machine.
-        savedFrontendUrl = process.env['FRONTEND_URL'];
-        process.env['FRONTEND_URL'] = 'https://app.innopeak.test';
         emailProvider.isConfigured.mockReturnValue(false);
-      });
-
-      afterEach(() => {
-        if (savedFrontendUrl === undefined) {
-          delete process.env['FRONTEND_URL'];
-        } else {
-          process.env['FRONTEND_URL'] = savedFrontendUrl;
-        }
       });
 
       it('is refused, with a message that says why, while no email service is set up', async () => {
@@ -928,6 +919,7 @@ describe('AdminSettingsService', () => {
 
       // Only the change from off to on is held up: re-sending `true` on a platform already on must not start failing.
       it('does not hold up a request that leaves it on', async () => {
+        emailProvider.isConfigured.mockReturnValue(true);
         platformSettingsDbService.get.mockResolvedValue(allEnabledRow);
         platformSettingsDbService.update.mockResolvedValue(allEnabledRow);
 
@@ -945,14 +937,29 @@ describe('AdminSettingsService', () => {
         expect(platformSettingsDbService.update).toHaveBeenCalled();
       });
 
-      it('is allowed on a developer machine, where mail is written to the log', async () => {
-        delete process.env['FRONTEND_URL'];
+      it('is refused while EMAIL_DELIVERY_ENABLED is off, even with a configured provider', async () => {
+        emailProvider.isConfigured.mockReturnValue(true);
+        configService.get.mockImplementation((key: string) => {
+          if (key === 'EMAIL_DELIVERY_ENABLED') return 'false';
+          return key === 'FRONTEND_URL' ? 'https://app.innopeak.test' : undefined;
+        });
         platformSettingsDbService.get.mockResolvedValue(passwordOffRow);
-        platformSettingsDbService.update.mockResolvedValue(allEnabledRow);
 
-        await target.updatePlatformSettings(admin, { passwordLoginEnabled: true });
+        await expect(
+          target.updatePlatformSettings(admin, { passwordLoginEnabled: true })
+        ).rejects.toBeInstanceOf(PasswordLoginNeedsEmailServiceException);
+        expect(platformSettingsDbService.update).not.toHaveBeenCalled();
+      });
 
-        expect(platformSettingsDbService.update).toHaveBeenCalled();
+      // Email delivery is not implemented yet: the local provider only logs the message, so nothing reaches the recipient. The switch
+      // therefore stays off on a developer machine too, and an admin cannot turn it on there either.
+      it('is refused on a developer machine, where mail is only written to the log', async () => {
+        platformSettingsDbService.get.mockResolvedValue(passwordOffRow);
+
+        await expect(
+          target.updatePlatformSettings(admin, { passwordLoginEnabled: true })
+        ).rejects.toBeInstanceOf(PasswordLoginNeedsEmailServiceException);
+        expect(platformSettingsDbService.update).not.toHaveBeenCalled();
       });
     });
 

@@ -10,6 +10,7 @@ import { useForm } from "react-hook-form";
 
 import { AuthDivider } from "@/app/(auth)/_components/auth-divider";
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
+import { MicrosoftAuthButton } from "@/app/(auth)/_components/microsoft-auth-button";
 import { SocialAuthButtons } from "@/app/(auth)/_components/social-auth-buttons";
 import {
   type AcceptInviteFields,
@@ -42,14 +43,23 @@ export function AcceptInviteView({ token }: AcceptInviteViewProps) {
   const t = useTranslations("auth.acceptInvite");
   useOAuthErrorToast();
   const router = useRouter();
-  const { isValidating, invite, invalid, isSubmitting, acceptWithPassword, startWithGoogle } =
-    useAcceptAdminInvite(token);
+  const {
+    isValidating,
+    invite,
+    invalid,
+    isSubmitting,
+    acceptWithPassword,
+    startWithGoogle,
+    startWithMicrosoft,
+  } = useAcceptAdminInvite(token);
 
-  // Gated like LoginView's Google button: a Google-accepted admin has no password, so with social
-  // sign-in off they'd be locked out (/login hides the button; no admin set-password flow).
-  // Hidden while loading or on failure; the password form is always available.
+  // Admin SSO follows the deploy-level availability (`adminGoogleLoginAvailable` /
+  // `adminMicrosoftLoginAvailable`), not the tenant switches: an admin who joined through SSO has
+  // no password, so the button must stay available whenever the deployment can serve it.
   const { data: platformSettings } = usePlatformSettings();
-  const socialEnabled = platformSettings?.googleLoginEnabled ?? false;
+  const googleEnabled = platformSettings?.adminGoogleLoginAvailable ?? false;
+  const microsoftEnabled = platformSettings?.adminMicrosoftLoginAvailable ?? false;
+  const socialEnabled = googleEnabled || microsoftEnabled;
 
   const schema = useMemo(() => acceptInviteSchema(t), [t]);
   const {
@@ -114,9 +124,13 @@ export function AcceptInviteView({ token }: AcceptInviteViewProps) {
         <h1 className="text-gradient mb-1 text-center text-xl font-semibold">{t("title")}</h1>
         {/* Two variants: the subtitle must not name only the password while a Google button is offered. */}
         <p className="text-muted-foreground mb-7 text-center text-sm">
-          {socialEnabled
-            ? t("invitedAsWithGoogle", { email: invite?.email ?? "" })
-            : t("invitedAs", { email: invite?.email ?? "" })}
+          {googleEnabled && microsoftEnabled
+            ? t("invitedAsWithSso", { email: invite?.email ?? "" })
+            : googleEnabled
+              ? t("invitedAsWithGoogle", { email: invite?.email ?? "" })
+              : microsoftEnabled
+                ? t("invitedAsWithMicrosoft", { email: invite?.email ?? "" })
+                : t("invitedAs", { email: invite?.email ?? "" })}
         </p>
 
         <form className="flex flex-col gap-4" onSubmit={(event) => void submit(event)} noValidate>
@@ -161,11 +175,22 @@ export function AcceptInviteView({ token }: AcceptInviteViewProps) {
           <>
             <AuthDivider label={t("orDivider")} />
 
-            <SocialAuthButtons
-              isLoading={isSubmitting}
-              onGoogleClick={startWithGoogle}
-              label={t("continueWithGoogle")}
-            />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {microsoftEnabled ? (
+                <MicrosoftAuthButton
+                  isLoading={isSubmitting}
+                  onClick={startWithMicrosoft}
+                  label={t("continueWithMicrosoft")}
+                />
+              ) : null}
+              {googleEnabled ? (
+                <SocialAuthButtons
+                  isLoading={isSubmitting}
+                  onGoogleClick={startWithGoogle}
+                  label={t("continueWithGoogle")}
+                />
+              ) : null}
+            </div>
           </>
         ) : null}
       </div>

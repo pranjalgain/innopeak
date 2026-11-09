@@ -22,6 +22,8 @@ interface UseAcceptMemberInviteResult {
   ) => Promise<{ succeeded: boolean; hasConnectedBusiness: boolean }>;
   /** Navigates away — there is no return value to check. */
   startWithGoogle: () => void;
+  /** Navigates away — there is no return value to check. */
+  startWithMicrosoft: () => void;
   /** Re-runs validation — the way out of a transient failure (a network drop, a 5xx, the
    *  validate route's own rate limit), which is not the same as `invalid` and must not be. */
   retryValidation: () => void;
@@ -88,6 +90,10 @@ export function useAcceptMemberInvite(token: string): UseAcceptMemberInviteResul
     AuthService.startMemberInviteGoogle(token);
   }, [token]);
 
+  const startWithMicrosoft = useCallback(() => {
+    AuthService.startMemberInviteMicrosoft(token);
+  }, [token]);
+
   return {
     isValidating,
     invite,
@@ -95,6 +101,7 @@ export function useAcceptMemberInvite(token: string): UseAcceptMemberInviteResul
     isSubmitting,
     acceptWithPassword,
     startWithGoogle,
+    startWithMicrosoft,
     retryValidation,
   };
 }

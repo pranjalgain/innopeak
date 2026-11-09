@@ -10,6 +10,7 @@ import { useForm } from "react-hook-form";
 
 import { AuthDivider } from "@/app/(auth)/_components/auth-divider";
 import { AuthLogo } from "@/app/(auth)/_components/auth-logo";
+import { MicrosoftAuthButton } from "@/app/(auth)/_components/microsoft-auth-button";
 import { SocialAuthButtons } from "@/app/(auth)/_components/social-auth-buttons";
 import {
   type AcceptMemberInviteFields,
@@ -54,12 +55,15 @@ export function AcceptInviteView({ token }: AcceptInviteViewProps) {
     isSubmitting,
     acceptWithPassword,
     startWithGoogle,
+    startWithMicrosoft,
     retryValidation,
   } = useAcceptMemberInvite(token);
 
-  // `googleLoginEnabled` gates only the Google button, not invite validity.
+  // `googleLoginEnabled` / `microsoftLoginEnabled` gate only the matching button, not invite validity.
   const { data: platformSettings } = usePlatformSettings();
   const socialEnabled = platformSettings?.googleLoginEnabled ?? false;
+  const microsoftEnabled = platformSettings?.microsoftLoginEnabled ?? false;
+  const ssoEnabled = socialEnabled || microsoftEnabled;
 
   const schema = useMemo(() => acceptMemberInviteSchema(t), [t]);
   const {
@@ -148,9 +152,13 @@ export function AcceptInviteView({ token }: AcceptInviteViewProps) {
       <div className={CARD_CLASS}>
         <h1 className="text-gradient mb-1 text-center text-xl font-semibold">{t("title")}</h1>
         <p className="text-muted-foreground mb-7 text-center text-sm">
-          {socialEnabled
-            ? t("invitedAsWithGoogle", { email: invite.email })
-            : t("invitedAs", { email: invite.email })}
+          {socialEnabled && microsoftEnabled
+            ? t("invitedAsWithSso", { email: invite.email })
+            : socialEnabled
+              ? t("invitedAsWithGoogle", { email: invite.email })
+              : microsoftEnabled
+                ? t("invitedAsWithMicrosoft", { email: invite.email })
+                : t("invitedAs", { email: invite.email })}
         </p>
 
         <form className="flex flex-col gap-4" onSubmit={(event) => void submit(event)} noValidate>
@@ -202,15 +210,26 @@ export function AcceptInviteView({ token }: AcceptInviteViewProps) {
           </Button>
         </form>
 
-        {socialEnabled ? (
+        {ssoEnabled ? (
           <>
             <AuthDivider label={t("orDivider")} />
 
-            <SocialAuthButtons
-              isLoading={isSubmitting}
-              onGoogleClick={startWithGoogle}
-              label={t("continueWithGoogle")}
-            />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {microsoftEnabled ? (
+                <MicrosoftAuthButton
+                  isLoading={isSubmitting}
+                  onClick={startWithMicrosoft}
+                  label={t("continueWithMicrosoft")}
+                />
+              ) : null}
+              {socialEnabled ? (
+                <SocialAuthButtons
+                  isLoading={isSubmitting}
+                  onGoogleClick={startWithGoogle}
+                  label={t("continueWithGoogle")}
+                />
+              ) : null}
+            </div>
           </>
         ) : null}
       </div>

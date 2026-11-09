@@ -346,6 +346,12 @@ export const messagesDe: MessageCatalog = {
       }
       return `${provider} ist die einzige Anmeldemöglichkeit für ${count} Benutzer. Wird es deaktiviert, sind sie ausgesperrt, bis es wieder aktiviert wird. Bestätigen Sie, um es trotzdem zu deaktivieren.`;
     },
+    CANNOT_DISABLE_PASSWORD_LOGIN_PASSWORD_ONLY_USERS: (count: number): string => {
+      if (count === 1) {
+        return 'E-Mail und Passwort sind die einzige Anmeldemöglichkeit für einen Benutzer. Wird es deaktiviert, ist er ausgesperrt, bis es wieder aktiviert wird. Bestätigen Sie, um es trotzdem zu deaktivieren.';
+      }
+      return `E-Mail und Passwort sind die einzige Anmeldemöglichkeit für ${count} Benutzer. Wird es deaktiviert, sind sie ausgesperrt, bis es wieder aktiviert wird. Bestätigen Sie, um es trotzdem zu deaktivieren.`;
+    },
     PLATFORM_SETTINGS_NO_USABLE_METHOD:
       'Mindestens eine aktivierte Anmeldemethode muss auf diesem Server auch eingerichtet sein (Microsoft und Google benötigen konfigurierte Zugangsdaten).',
     ADMIN_NOT_FOUND: 'Plattform-Administrator nicht gefunden.',

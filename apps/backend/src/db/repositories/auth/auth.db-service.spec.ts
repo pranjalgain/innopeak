@@ -1,4 +1,5 @@
 import { SsoProvider } from '@auth/constants/sso-auth.constants';
+import { UserIdentityProvider } from '@auth/enums/user-identity-provider.enum';
 import { UserRole } from '@auth/enums/user-role.enum';
 import { UserStatus } from '@auth/enums/user-status.enum';
 import { PlatformActivityType } from '@common/enums/platform-activity-type.enum';
@@ -48,7 +49,7 @@ describe('AuthDbService', () => {
       findMemberInviteStatusByEmail: jest.fn(),
       findMemberInviteEmailByTokenHash: jest.fn(),
       acceptMemberInviteWithPassword: jest.fn(),
-      acceptMemberInviteWithGoogleIdentity: jest.fn(),
+      acceptMemberInviteWithSsoIdentity: jest.fn(),
       deleteInvitedMember: jest.fn(),
       deleteExpiredMemberInvite: jest.fn(),
       listTenantMembers: jest.fn(),
@@ -663,12 +664,13 @@ describe('AuthDbService', () => {
     ).resolves.toEqual({ outcome: 'invalid' });
   });
 
-  it('acceptMemberInviteWithGoogleIdentity passes through to the repository', async () => {
-    authRepository.acceptMemberInviteWithGoogleIdentity.mockResolvedValue({ outcome: 'invalid' });
+  it('acceptMemberInviteWithSsoIdentity passes through to the repository', async () => {
+    authRepository.acceptMemberInviteWithSsoIdentity.mockResolvedValue({ outcome: 'invalid' });
 
     await expect(
-      target.acceptMemberInviteWithGoogleIdentity({
+      target.acceptMemberInviteWithSsoIdentity({
         tokenHash: 'hash',
+        provider: UserIdentityProvider.GOOGLE,
         providerUserId: 'google-sub-1',
         email: 'sam.rivera@thecoffeehouse.com',
         name: 'Sam Rivera',

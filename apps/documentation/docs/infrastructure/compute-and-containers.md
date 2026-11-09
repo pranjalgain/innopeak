@@ -22,39 +22,58 @@ The documentation site is static files and needs no running process.
 
 ## The backend image
 
-One image serves both the API and the worker. It is built by `apps/backend/Dockerfile` in three
-stages, on `node:20-alpine` with pnpm 8.15.0:
+One image serves the API, the worker and the migration job. `apps/backend/Dockerfile` builds it from
+the **repository root**, on `node:24.22.1-alpine` with pnpm 10.15.0 (the version the root
+`package.json` pins). Build it with the root as context so the workspace lockfile and the shared
+`libs/` are available:
 
-1. Install dependencies with `pnpm install --frozen-lockfile`.
-2. Build with `pnpm run build:api` (compile, rewrite path aliases, copy views and assets).
-3. Copy `node_modules` and `dist` into the final image, run as the unprivileged `node` user, expose
-   port 3000.
+```bash
+docker build -f apps/backend/Dockerfile -t innopeak-backend .
+```
+
+The stages are:
+
+1. Copy only the workspace manifests (root, `apps/backend`, `apps/web`, `libs/client_sdk`) and run
+   `pnpm install --frozen-lockfile`, so the install layer caches while source changes.
+2. Copy `apps/backend` and build with `pnpm --filter backend build:api` (compile, rewrite path
+   aliases, copy views, assets, email templates and SQL migrations).
+3. A separate `prod-deps` stage installs production dependencies only
+   (`pnpm install --frozen-lockfile --prod --filter backend`); the final image receives that
+   `node_modules`, the compiled `dist` and the static `views`/`assets`. It runs as the unprivileged
+   `node` user and exposes port 3000.
 
 The default command starts the API (`node dist/main.js`). **Start the worker from the same image by
 overriding the command** to `node dist/worker.main.js`. The migration and seed jobs are also commands
 on this image: `node dist/db/drizzle/migrate.js` and `node dist/db/seeds/seed-platform-admin.js`.
 
-### Problems to fix before using it
-
-| Problem | Effect | Fix |
-|---|---|---|
-| The Dockerfile copies `pnpm-lock.yaml` from `apps/backend`, but that file is git-ignored (`apps/backend/.gitignore`). The tracked lockfile is the repository root's | A build from a clean checkout fails at `COPY` | Build from the repository root with a Dockerfile that uses the root lockfile, or stop ignoring the file |
-| The built-in `HEALTHCHECK` calls `http://127.0.0.1:3000/health` | A worker container has no HTTP server, so Docker marks it permanently unhealthy | Override or disable the health check for the worker. Kubernetes ignores `HEALTHCHECK`, so this affects plain Docker and Compose |
-| The final stage copies the whole `node_modules`, development dependencies included | A larger image and a larger attack surface | Prune to production dependencies in the final stage |
-| An empty `logs` directory is created | Unused: the application writes logs to the console only | Remove |
-| `copyStaticAssets()` copies `views` and `assets` into `dist` at every API start | On a read-only root filesystem it logs an error and carries on (the app does not use the copy) | Harmless; remove the call, or keep a writable `dist` |
+The image's `HEALTHCHECK` probes the API's HTTP endpoint. Kubernetes ignores `HEALTHCHECK` and uses
+its own probes; for a plain Docker or Compose worker container, disable or override it, since the
+worker has no HTTP server and would otherwise be reported unhealthy.
 
 ## The web image
 
-There is none. Two facts matter when one is written:
+`apps/web/Dockerfile` builds the web app from the same repository root, on the same Node 24.22.1 base
+image and pnpm version:
 
-- The web app declares `node >= 24` (`apps/web/package.json`), while the backend image and the
-  repository's `.nvmrc` use Node 20. Build it on its own base image, not the backend's.
-- `API_URL` is fixed when `next build` runs, so each environment needs its own build, or all of them
-  must share one API address. See [Web app](../services/web-app.md).
+```bash
+docker build -f apps/web/Dockerfile -t innopeak-web \
+  --build-arg API_URL=https://api.example.com \
+  --build-arg NEXT_PUBLIC_APP_ENV=production \
+  --build-arg NEXT_PUBLIC_APP_URL=https://app.example.com .
+```
 
-`next.config.ts` does not set `output: 'standalone'`. Setting it produces a much smaller runtime
-image than shipping the whole workspace.
+`next.config.ts` sets `output: "standalone"`, so the final image carries only the traced server
+bundle plus `.next/static` and `public` — not the workspace or the development dependencies. It runs
+as `node`, listens on port 3000 (`PORT`) on `0.0.0.0` and starts `apps/web/server.js`.
+
+`API_URL` (the `/v1` rewrite target) and the `NEXT_PUBLIC_*` values are inlined when `next build`
+runs, so each environment needs its own build, or all of them must share one API address. Sentry
+source-map upload uses the `SENTRY_AUTH_TOKEN`/`SENTRY_ORG`/`SENTRY_PROJECT` build arguments. See
+[Web app](../services/web-app.md).
+
+The root `.dockerignore` keeps `node_modules`, build output, local environment files and the
+infrastructure/documentation trees out of both build contexts while leaving every workspace manifest
+and the root `pnpm-lock.yaml` in.
 
 ## Resources
 

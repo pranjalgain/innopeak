@@ -36,7 +36,7 @@ describe('PlatformAdminAuthService', () => {
       findForLogin: jest.fn(),
       findInviteEmailByTokenHash: jest.fn(),
       acceptInviteWithPassword: jest.fn(),
-      acceptInviteWithGoogleIdentity: jest.fn(),
+      acceptInviteWithSsoIdentity: jest.fn(),
       findByGoogleIdentity: jest.fn(),
       findByIdentity: jest.fn(),
       linkIdentityByEmail: jest.fn(),
@@ -321,7 +321,59 @@ describe('PlatformAdminAuthService', () => {
     });
   });
 
-  describe('completeAdminInviteGoogle', () => {
+  describe('buildAdminInviteMicrosoftRedirect', () => {
+    beforeEach(() => {
+      platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue({
+        email: 'priya.ops@innopeak.com',
+      });
+      oauthStateService.mint.mockResolvedValue({
+        state: 'signed-state',
+        sid: 'raw-sid',
+        nonce: 'oidc-nonce',
+        codeChallenge: 'challenge',
+      });
+    });
+
+    it('mints ADMIN_INVITE state with PKCE and sends the browser to the pinned directory', async () => {
+      const redirect = await target.buildAdminInviteMicrosoftRedirect('raw-token-1');
+
+      expect(oauthStateService.mint).toHaveBeenCalledWith({
+        provider: SsoProvider.MICROSOFT,
+        intent: OAuthIntent.ADMIN_INVITE,
+        inviteToken: 'raw-token-1',
+        pkce: true,
+      });
+      expect(microsoftIdentityProvider.buildAuthorizationUrl).toHaveBeenCalledWith({
+        state: 'signed-state',
+        nonce: 'oidc-nonce',
+        codeChallenge: 'challenge',
+        tenantId: ADMIN_TID,
+      });
+      expect(redirect).toMatchObject({ ok: true, sid: 'raw-sid' });
+    });
+
+    it('redirects to the accept page without minting state for a dead token', async () => {
+      platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue(null);
+
+      await expect(target.buildAdminInviteMicrosoftRedirect('bad-token')).resolves.toEqual({
+        ok: false,
+        redirectUrl: `https://app.innopeak.test/invite/bad-token?error=${SsoAuthFailure.INVALID_OR_EXPIRED_INVITE}`,
+      });
+      expect(oauthStateService.mint).not.toHaveBeenCalled();
+    });
+
+    it('refuses to start without the pinned directory or client configuration', async () => {
+      env['ADMIN_MICROSOFT_TENANT_ID'] = undefined;
+
+      await expect(target.buildAdminInviteMicrosoftRedirect('raw-token-1')).resolves.toEqual({
+        ok: false,
+        redirectUrl: `https://app.innopeak.test/invite/raw-token-1?error=${SsoAuthFailure.NOT_CONFIGURED}`,
+      });
+      expect(oauthStateService.mint).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('completeAdminInviteSso', () => {
     const identity = {
       providerUserId: 'google-sub-1',
       email: 'Priya.Ops@Innopeak.com',
@@ -333,20 +385,62 @@ describe('PlatformAdminAuthService', () => {
       platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue({
         email: 'priya.ops@innopeak.com',
       });
-      platformAdminDbService.acceptInviteWithGoogleIdentity.mockResolvedValue({
+      platformAdminDbService.acceptInviteWithSsoIdentity.mockResolvedValue({
         outcome: 'accepted',
         id: 'admin-1',
         email: 'priya.ops@innopeak.com',
         locale: null,
       });
 
-      const outcome = await target.completeAdminInviteGoogle('raw-token-1', identity);
+      const outcome = await target.completeAdminInviteSso(SsoProvider.GOOGLE, 'raw-token-1', identity);
 
-      expect(platformAdminDbService.acceptInviteWithGoogleIdentity).toHaveBeenCalledWith({
+      expect(platformAdminDbService.acceptInviteWithSsoIdentity).toHaveBeenCalledWith({
         tokenHash: expect.any(String),
+        provider: UserIdentityProvider.GOOGLE,
         providerUserId: 'google-sub-1',
       });
       expect(outcome).toMatchObject({ ok: true });
+    });
+
+    it('links a Microsoft identity under entra_id when it comes from the pinned directory', async () => {
+      platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue({
+        email: 'priya.ops@innopeak.com',
+      });
+      platformAdminDbService.acceptInviteWithSsoIdentity.mockResolvedValue({
+        outcome: 'accepted',
+        id: 'admin-1',
+        email: 'priya.ops@innopeak.com',
+        locale: null,
+      });
+
+      const outcome = await target.completeAdminInviteSso(SsoProvider.MICROSOFT, 'raw-token-1', {
+        ...identity,
+        tenantId: ADMIN_TID,
+      });
+
+      expect(platformAdminDbService.acceptInviteWithSsoIdentity).toHaveBeenCalledWith({
+        tokenHash: expect.any(String),
+        provider: UserIdentityProvider.ENTRA_ID,
+        providerUserId: 'google-sub-1',
+      });
+      expect(outcome).toMatchObject({ ok: true });
+    });
+
+    it('refuses a Microsoft identity from another directory, leaving the invite unconsumed', async () => {
+      platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue({
+        email: 'priya.ops@innopeak.com',
+      });
+
+      const outcome = await target.completeAdminInviteSso(SsoProvider.MICROSOFT, 'raw-token-1', {
+        ...identity,
+        tenantId: 'some-other-directory',
+      });
+
+      expect(outcome).toMatchObject({
+        ok: false,
+        failure: SsoAuthFailure.NO_ACCOUNT,
+      });
+      expect(platformAdminDbService.acceptInviteWithSsoIdentity).not.toHaveBeenCalled();
     });
 
     /**
@@ -358,7 +452,7 @@ describe('PlatformAdminAuthService', () => {
         email: 'priya.ops@innopeak.com',
       });
 
-      const outcome = await target.completeAdminInviteGoogle('raw-token-1', {
+      const outcome = await target.completeAdminInviteSso(SsoProvider.GOOGLE, 'raw-token-1', {
         ...identity,
         email: 'someone-else@innopeak.com',
       });
@@ -368,18 +462,18 @@ describe('PlatformAdminAuthService', () => {
         failure: SsoAuthFailure.INVITE_EMAIL_MISMATCH,
         redirectUrl: `https://app.innopeak.test/invite/raw-token-1?error=${SsoAuthFailure.INVITE_EMAIL_MISMATCH}`,
       });
-      expect(platformAdminDbService.acceptInviteWithGoogleIdentity).not.toHaveBeenCalled();
+      expect(platformAdminDbService.acceptInviteWithSsoIdentity).not.toHaveBeenCalled();
     });
 
     it('reports a Google account already linked to a different admin distinctly from an invalid token', async () => {
       platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue({
         email: 'priya.ops@innopeak.com',
       });
-      platformAdminDbService.acceptInviteWithGoogleIdentity.mockResolvedValue({
+      platformAdminDbService.acceptInviteWithSsoIdentity.mockResolvedValue({
         outcome: 'identity_already_linked',
       });
 
-      const outcome = await target.completeAdminInviteGoogle('raw-token-1', identity);
+      const outcome = await target.completeAdminInviteSso(SsoProvider.GOOGLE, 'raw-token-1', identity);
 
       expect(outcome).toMatchObject({
         ok: false,
@@ -390,17 +484,17 @@ describe('PlatformAdminAuthService', () => {
     it('rejects a dead token before ever looking at the Google identity outcome', async () => {
       platformAdminDbService.findInviteEmailByTokenHash.mockResolvedValue(null);
 
-      const outcome = await target.completeAdminInviteGoogle('raw-token-1', identity);
+      const outcome = await target.completeAdminInviteSso(SsoProvider.GOOGLE, 'raw-token-1', identity);
 
       expect(outcome).toMatchObject({
         ok: false,
         failure: SsoAuthFailure.INVALID_OR_EXPIRED_INVITE,
       });
-      expect(platformAdminDbService.acceptInviteWithGoogleIdentity).not.toHaveBeenCalled();
+      expect(platformAdminDbService.acceptInviteWithSsoIdentity).not.toHaveBeenCalled();
     });
 
     it('falls back to the login page when the invite token is somehow missing', async () => {
-      const outcome = await target.completeAdminInviteGoogle(undefined, identity);
+      const outcome = await target.completeAdminInviteSso(SsoProvider.GOOGLE, undefined, identity);
 
       expect(outcome).toMatchObject({
         ok: false,

@@ -25,7 +25,7 @@ sign-in and sign-up screens use it to decide which buttons to show.
 
 | Setting | Default | What it controls |
 |---|---|---|
-| `passwordLoginEnabled` | on | Email and password for businesses: sign-up, sign-in, the emailed sign-up code, and accepting an invitation with a password. When off, the login screen hides the form and the server refuses all of these. Turn it off where no email service is set up, because sign-up codes cannot be delivered. Sessions that already exist, and platform admins, are not affected |
+| `passwordLoginEnabled` | on | Email and password for businesses: sign-up, sign-in, the emailed sign-up code, and accepting an invitation with a password. When off, the login screen hides the form and the server refuses all of these. It is in effect only while `EMAIL_DELIVERY_ENABLED=true` and an email service is configured, because sign-up codes must be delivered. Sessions that already exist, and platform admins, are not affected |
 | `googleLoginEnabled` | on | Google sign-in, sign-up and invitation acceptance for businesses |
 | `microsoftLoginEnabled` | on | Microsoft sign-in, sign-up and invitation acceptance for businesses |
 | `inviteMembersEnabled` | on | Whether owners see the Members tab in Settings and can invite colleagues. When off, invitations are refused by the API as well |
@@ -48,15 +48,19 @@ has no other way back in. Those buttons follow the deploy-level availability val
   all off (`platform_settings_at_least_one_method_check`), and the API checks it first.
 - **A method only counts if it can be used.** Turning a method off is refused if it would leave only
   methods that are not usable: Microsoft and Google also need their credentials configured on this
-  server (see [External services](./external-services.md)), while the password switch always works.
-  Otherwise nobody could sign in or sign up and nothing would explain why.
-- **Email/password can only be switched back on when email can be delivered.** Changing it from off to
-  on is refused with a 422 `PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE` and a message in the admin's language,
-  unless the server has a working email service: it runs in production, `EMAIL_FROM` is set, and for
-  SMTP `SMTP_HOST` is set too (see [External services](./external-services.md#email)). A sign-up is
-  completed by an emailed code and invitations are emailed, so turning it on without email would offer
-  a sign-in that cannot finish. A developer's machine is exempt, switching it off is never refused, and
-  neither is sending `on` when it is already on.
+  server (see [External services](./external-services.md)), and email/password needs an email service
+  (see below). Otherwise nobody could sign in or sign up and nothing would explain why.
+- **Email/password can only be switched on when email can be delivered.** The API refuses `true` with
+  a 422 `PASSWORD_LOGIN_NEEDS_EMAIL_SERVICE` and a message in the admin's language unless this
+  deployment has email delivery switched on and a configured email service: `EMAIL_DELIVERY_ENABLED`
+  is `true`, and for SES `EMAIL_FROM` plus credentials (or the AWS deployment target), and for SMTP
+  `SMTP_HOST` and `EMAIL_FROM` (see [External services](./external-services.md#email)). A sign-up is
+  completed by an emailed code and invitations are emailed, so turning it on without email would
+  offer a sign-in that cannot finish. There is deliberately **no developer-machine exemption**: the
+  local provider only logs the message, so nobody receives the code. Switching it off is never
+  refused. While `EMAIL_DELIVERY_ENABLED` is off or no email service is configured, the stored switch
+  is reported off and nobody can turn it on. The admin console still offers the toggle: turning it on
+  is refused with the API's 422 and message, the same way `notificationSettingsEnabled` behaves.
 - **`notificationSettingsEnabled` cannot be switched on yet.** Only the in-app bell exists. Email and
   Teams delivery are not built, so the API refuses `true` (a `TODO(notifications)` in
   `admin-settings.service.ts` marks the check to remove once they exist). Sending `false` is always
@@ -73,6 +77,7 @@ They are listed in [Configuration reference](./configuration-reference.md).
 | `erasureGracePeriodDays` | `ERASURE_GRACE_PERIOD_DAYS` | Days a deletion request can be undone, shown to owners in the delete-business flow |
 | `adminMicrosoftLoginAvailable` | `ADMIN_MICROSOFT_TENANT_ID` and the Microsoft client | Whether the admin sign-in page shows Microsoft |
 | `adminGoogleLoginAvailable` | The Google client credentials | Whether the admin sign-in page shows Google |
+| `emailDeliveryAvailable` | `EMAIL_DELIVERY_ENABLED` and the email provider (`EMAIL_FROM` and credentials, or `SMTP_HOST`) | Whether this server can deliver email. Email/password is in effect only when this is true; the admin console still offers the toggle, and turning it on while this is false is refused with a 422 |
 
 The two `admin...Available` values mean the deployment *could* sign an admin in with that provider. A
 deployment that cannot never shows a button that could only fail.

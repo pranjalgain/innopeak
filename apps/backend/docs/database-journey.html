@@ -240,10 +240,10 @@
         <text class="cluster-item" x="36" y="100">tenant_identity_providers</text>
         <text class="cluster-item" x="36" y="118">users</text>
         <text class="cluster-item" x="36" y="136">user_identities</text>
-        <text class="cluster-item" x="36" y="154">password_reset_tokens</text>
+        <text class="cluster-item" x="36" y="154">user_auth_tokens</text>
         <text class="cluster-item" x="36" y="180">platform_admins</text>
         <text class="cluster-item" x="36" y="198">platform_admin_identities</text>
-        <text class="cluster-item" x="36" y="216">platform_admin_invites</text>
+        <text class="cluster-item" x="36" y="216">platform_admin_auth_tokens</text>
 
         <line class="cluster-link" x1="250" y1="145" x2="300" y2="145" marker-end="url(#ov-arrow)"></line>
 
@@ -325,7 +325,7 @@
 
     <ul class="notes">
       <li>The password path (not exposed in this build's UI, but still live at the API) would leave
-        <code>status = pending_verification</code> and add a <code>password_reset_tokens</code> row
+        <code>status = pending_verification</code> and add a <code>user_auth_tokens</code> row
         with <code>purpose = verify_email</code> instead of writing straight to
         <code>user_identities</code>.</li>
       <li>If this tenant should only accept sign-ins from their own Microsoft directory, a

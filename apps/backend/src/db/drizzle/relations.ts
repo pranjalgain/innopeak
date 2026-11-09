@@ -6,9 +6,8 @@ import {
   locations,
   notificationRecipients,
   notifications,
-  passwordResetTokens,
+  platformAdminAuthTokens,
   platformAdminIdentities,
-  platformAdminInvites,
   platformAdmins,
   prompts,
   promptVersions,
@@ -19,6 +18,7 @@ import {
   tenantIdentityProviders,
   tenants,
   tenantSettings,
+  userAuthTokens,
   userIdentities,
   userLocations,
   users,
@@ -34,7 +34,7 @@ export const platformAdminsRelations = relations(platformAdmins, ({ one, many })
     relationName: 'platformAdmins_invitedByPlatformAdminId_platformAdmins_id',
   }),
   platformAdminIdentities: many(platformAdminIdentities),
-  platformAdminInvites: many(platformAdminInvites),
+  platformAdminAuthTokens: many(platformAdminAuthTokens),
   tenants: many(tenants),
 }));
 
@@ -45,9 +45,9 @@ export const platformAdminIdentitiesRelations = relations(platformAdminIdentitie
   }),
 }));
 
-export const platformAdminInvitesRelations = relations(platformAdminInvites, ({ one }) => ({
+export const platformAdminAuthTokensRelations = relations(platformAdminAuthTokens, ({ one }) => ({
   platformAdmin: one(platformAdmins, {
-    fields: [platformAdminInvites.platformAdminId],
+    fields: [platformAdminAuthTokens.platformAdminId],
     references: [platformAdmins.id],
   }),
 }));
@@ -92,7 +92,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
     relationName: 'users_invitedByUserId_users_id',
   }),
   userIdentities: many(userIdentities),
-  passwordResetTokens: many(passwordResetTokens),
+  userAuthTokens: many(userAuthTokens),
   reviewProviderConnections: many(reviewProviderConnections),
   notificationRecipients: many(notificationRecipients),
   userLocations: many(userLocations),
@@ -127,9 +127,9 @@ export const userIdentitiesRelations = relations(userIdentities, ({ one }) => ({
   }),
 }));
 
-export const passwordResetTokensRelations = relations(passwordResetTokens, ({ one }) => ({
+export const userAuthTokensRelations = relations(userAuthTokens, ({ one }) => ({
   user: one(users, {
-    fields: [passwordResetTokens.userId],
+    fields: [userAuthTokens.userId],
     references: [users.id],
   }),
 }));

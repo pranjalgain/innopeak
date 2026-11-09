@@ -57,9 +57,7 @@ describe('AzureOpenAiProvider', () => {
     expect(mockOpenAiConstructor).toHaveBeenCalledWith(
       expect.objectContaining({
         apiKey: 'azure-key',
-        baseURL: 'https://acme.openai.azure.com/openai/deployments/gpt-4o-reply',
-        defaultQuery: { 'api-version': '2024-10-21' },
-        defaultHeaders: { 'api-key': 'azure-key' },
+        baseURL: 'https://acme.openai.azure.com/openai/v1',
       })
     );
     expect(mockOpenAiInstance.chat.completions.create).toHaveBeenCalledWith(
@@ -94,7 +92,7 @@ describe('AzureOpenAiProvider', () => {
 
     expect(mockOpenAiConstructor).toHaveBeenCalledWith(
       expect.objectContaining({
-        baseURL: 'https://acme.openai.azure.com/openai/deployments/gpt-4o-reply',
+        baseURL: 'https://acme.openai.azure.com/openai/v1',
       })
     );
   });

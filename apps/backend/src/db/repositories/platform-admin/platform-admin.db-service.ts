@@ -200,11 +200,12 @@ export class PlatformAdminDbService {
     return this.platformAdminRepository.acceptInviteWithPassword(input);
   }
 
-  async acceptInviteWithGoogleIdentity(input: {
+  async acceptInviteWithSsoIdentity(input: {
     tokenHash: string;
+    provider: UserIdentityProvider;
     providerUserId: string;
   }): Promise<AcceptInviteOutcome> {
-    return this.platformAdminRepository.acceptInviteWithGoogleIdentity(input);
+    return this.platformAdminRepository.acceptInviteWithSsoIdentity(input);
   }
 }
 
